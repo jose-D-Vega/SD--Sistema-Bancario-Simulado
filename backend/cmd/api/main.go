@@ -31,6 +31,9 @@ func main() {
 
 	router.GET("/health", handlers.Health(dbConn))
 
+	router.POST("/cuentas", handlers.CrearCuenta(dbConn, cfg.BancoID))
+	router.GET("/cuentas/:numero_cuenta", handlers.ObtenerCuenta(dbConn, cfg.BancoID))
+
 	interbancario := router.Group("/")
 	interbancario.Use(handlers.VerifyBankSignature(publicKeys))
 	{

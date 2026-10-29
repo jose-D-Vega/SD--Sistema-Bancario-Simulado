@@ -1,0 +1,77 @@
+package handlers
+
+import (
+	"database/sql"
+	"errors"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jmoiron/sqlx"
+
+	"github.com/sudameris/backend/internal/models"
+)
+
+type crearCuentaRequest struct {
+	NumeroCuenta string `json:"numero_cuenta" binding:"required"`
+	Titular      string `json:"titular" binding:"required"`
+	SaldoInicial int64  `json:"saldo_inicial"`
+}
+
+func CrearCuenta(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req crearCuentaRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		if req.SaldoInicial < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "saldo_inicial no puede ser negativo"})
+			return
+		}
+
+		var cuenta models.Cuenta
+		err := dbConn.Get(&cuenta, `
+			INSERT INTO cuentas (banco_id, numero_cuenta, titular, saldo)
+			VALUES ($1, $2, $3, $4)
+			RETURNING id, banco_id, numero_cuenta, titular, saldo, estado, creado_en
+		`, bancoID, req.NumeroCuenta, req.Titular, req.SaldoInicial)
+
+		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				c.JSON(http.StatusConflict, gin.H{"error": "ya existe una cuenta con ese número"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "error creando la cuenta"})
+			return
+		}
+
+		c.JSON(http.StatusCreated, cuenta)
+	}
+}
+
+func ObtenerCuenta(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		numeroCuenta := c.Param("numero_cuenta")
+
+		var cuenta models.Cuenta
+		err := dbConn.Get(&cuenta, `
+			SELECT id, banco_id, numero_cuenta, titular, saldo, estado, creado_en
+			FROM cuentas
+			WHERE banco_id = $1 AND numero_cuenta = $2
+		`, bancoID, numeroCuenta)
+
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "cuenta no encontrada"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "error consultando la cuenta"})
+			return
+		}
+
+		c.JSON(http.StatusOK, cuenta)
+	}
+}

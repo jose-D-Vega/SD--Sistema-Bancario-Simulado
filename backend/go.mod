@@ -4,6 +4,7 @@ go 1.25
 
 require (
 	github.com/gin-gonic/gin v1.10.0
+	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.6.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/joho/godotenv v1.5.1
@@ -43,3 +44,8 @@ require (
 	google.golang.org/protobuf v1.34.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// pgconn viene incluido como dependencia transitiva de pgx/v5, pero lo
+// importamos directo en internal/handlers/cuentas.go para detectar el
+// código de error 23505 (unique_violation). `go mod tidy` lo va a
+// resolver automáticamente; no hace falta agregarlo a mano.
