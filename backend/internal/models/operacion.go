@@ -30,7 +30,10 @@ const (
 	TipoRetiroCajero                = "RETIRO_CAJERO"
 
 	OperacionPendiente  = "PENDIENTE"
+	OperacionRecibida   = "RECIBIDA"
+	OperacionReservada  = "RESERVADA"
 	OperacionCompletada = "COMPLETADA"
 	OperacionRechazada  = "RECHAZADA"
+	OperacionFallida    = "FALLIDA"
 	OperacionRevertida  = "REVERTIDA"
 )

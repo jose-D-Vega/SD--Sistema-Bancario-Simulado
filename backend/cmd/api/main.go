@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/ed25519"
 	"log"
 
 	"github.com/gin-gonic/gin"
@@ -23,9 +22,10 @@ func main() {
 	}
 	defer dbConn.Close()
 
-	// TODO: cargar claves públicas de los otros bancos cuando el BCP
-	// simulado las distribuya.
-	publicKeys := map[string]ed25519.PublicKey{}
+	publicKeys, err := config.CargarRegistroBancos(cfg.RegistroBancosPath)
+	if err != nil {
+		log.Fatalf("no se pudo cargar el registro de bancos: %v", err)
+	}
 
 	router := gin.Default()
 
@@ -35,10 +35,11 @@ func main() {
 	router.GET("/cuentas/:numero_cuenta", handlers.ObtenerCuenta(dbConn, cfg.BancoID))
 	router.POST("/transferencias/internas", handlers.TransferenciaInterna(dbConn, cfg.BancoID))
 
-	interbancario := router.Group("/")
+	interbancario := router.Group("/interbancario")
 	interbancario.Use(handlers.VerifyBankSignature(publicKeys))
 	{
-		// interbancario.POST("/transferencias/interbancarias", handlers.RecibirTransferencia(dbConn))
+		interbancario.POST("/creditos", handlers.RecibirCredito(dbConn, cfg.BancoID))
+		interbancario.GET("/creditos/:transfer_id", handlers.ConsultarCredito(dbConn, cfg.BancoID))
 		// interbancario.POST("/cajero/autorizaciones", handlers.AutorizarRetiro(dbConn))
 	}
 

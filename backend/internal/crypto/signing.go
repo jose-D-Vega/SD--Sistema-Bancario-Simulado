@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"fmt"
+	"strings"
 )
 
 // LoadPrivateKey acepta tanto la semilla de 32 bytes (formato que da
@@ -34,6 +35,15 @@ func LoadPublicKey(b64 string) (ed25519.PublicKey, error) {
 		return nil, fmt.Errorf("tamaño de clave pública inválido: got %d, want %d", len(raw), ed25519.PublicKeySize)
 	}
 	return ed25519.PublicKey(raw), nil
+}
+
+// CanonicalString arma la cadena que se firma/verifica entre bancos
+// (doc 02, sección 1): método, ruta, los tres headers de contexto y el
+// body, separados por salto de línea. body va tal cual se envía/recibe,
+// sin reformatear el JSON.
+func CanonicalString(method, path, bankID, idempotencyKey, timestamp string, body []byte) []byte {
+	parts := []string{method, path, bankID, idempotencyKey, timestamp, string(body)}
+	return []byte(strings.Join(parts, "\n"))
 }
 
 func Sign(priv ed25519.PrivateKey, payload []byte) string {
