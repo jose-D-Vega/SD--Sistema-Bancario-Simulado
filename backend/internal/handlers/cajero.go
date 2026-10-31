@@ -12,11 +12,6 @@ import (
 	"github.com/sudameris/backend/internal/models"
 )
 
-const (
-	limitePorRetiro     = 1_500_000
-	limiteDiarioCajero  = 10_000_000
-)
-
 type autorizacionCajeroRequest struct {
 	OperacionID  string `json:"operacion_id" binding:"required"`
 	BancoCuenta  string `json:"banco_cuenta" binding:"required"`
@@ -79,14 +74,9 @@ func AutorizarRetiroCajero(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 			SELECT * FROM cuentas WHERE banco_id = $1 AND numero_cuenta = $2 FOR UPDATE
 		`, bancoID, req.NumeroCuenta)
 
-		var retirosHoy int64
+		var salidoHoy int64
 		if err == nil {
-			err = tx.Get(&retirosHoy, `
-				SELECT COALESCE(SUM(importe), 0) FROM operaciones
-				WHERE banco_destino = $1 AND numero_cuenta_origen = $2
-				  AND tipo = $3 AND estado = $4
-				  AND creado_en >= date_trunc('day', now())
-			`, bancoID, req.NumeroCuenta, models.TipoRetiroCajero, models.OperacionCompletada)
+			salidoHoy, err = totalSalidoHoy(tx, bancoID, req.NumeroCuenta)
 		}
 
 		var motivoRechazo, codigoRechazo string
@@ -100,9 +90,9 @@ func AutorizarRetiroCajero(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 			motivoRechazo, codigoRechazo = "la cuenta no está activa", ErrCuentaInactiva
 		case cuenta.PinHash == nil || bcrypt.CompareHashAndPassword([]byte(*cuenta.PinHash), []byte(req.Pin)) != nil:
 			motivoRechazo, codigoRechazo = "PIN incorrecto", ErrPinIncorrecto
-		case req.Importe > limitePorRetiro:
+		case req.Importe > LimiteMaximoRetiroCajero:
 			motivoRechazo, codigoRechazo = "importe supera el límite por retiro", ErrLimiteExcedido
-		case retirosHoy+req.Importe > limiteDiarioCajero:
+		case salidoHoy+req.Importe > LimiteDiarioCombinado:
 			motivoRechazo, codigoRechazo = "se supera el límite diario combinado", ErrLimiteExcedido
 		case cuenta.Saldo < req.Importe:
 			motivoRechazo, codigoRechazo = "saldo insuficiente", ErrFondosInsuficientes

@@ -49,6 +49,7 @@ func main() {
 
 	router.POST("/cuentas", handlers.CrearCuenta(dbConn, cfg.BancoID))
 	router.GET("/cuentas/:numero_cuenta", handlers.ObtenerCuenta(dbConn, cfg.BancoID))
+	router.PATCH("/cuentas/:numero_cuenta/estado", handlers.CambiarEstadoCuenta(dbConn, cfg.BancoID))
 	router.POST("/transferencias/internas", handlers.TransferenciaInterna(dbConn, cfg.BancoID))
 	if cliente != nil {
 		router.POST("/transferencias/interbancarias", handlers.TransferenciaInterbancaria(dbConn, cfg.BancoID, cliente, registro))

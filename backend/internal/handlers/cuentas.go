@@ -67,6 +67,53 @@ func CrearCuenta(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 	}
 }
 
+type cambiarEstadoRequest struct {
+	Estado string `json:"estado" binding:"required"`
+}
+
+var estadosValidos = map[string]bool{
+	models.EstadoActiva:    true,
+	models.EstadoBloqueada: true,
+	models.EstadoCerrada:   true,
+}
+
+// CambiarEstadoCuenta permite bloquear, reactivar o cerrar una cuenta
+// propia (doc 01, sección 3). Es una operación interna del banco, no
+// forma parte del contrato entre bancos, así que no requiere firma.
+func CambiarEstadoCuenta(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		numeroCuenta := c.Param("numero_cuenta")
+
+		var req cambiarEstadoRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		if !estadosValidos[req.Estado] {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "estado inválido: " + req.Estado})
+			return
+		}
+
+		var cuenta models.Cuenta
+		err := dbConn.Get(&cuenta, `
+			UPDATE cuentas SET estado = $1
+			WHERE banco_id = $2 AND numero_cuenta = $3
+			RETURNING id, banco_id, numero_cuenta, titular, saldo, estado, creado_en
+		`, req.Estado, bancoID, numeroCuenta)
+
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "cuenta no encontrada"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "error actualizando la cuenta"})
+			return
+		}
+
+		c.JSON(http.StatusOK, cuenta)
+	}
+}
+
 func ObtenerCuenta(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		numeroCuenta := c.Param("numero_cuenta")

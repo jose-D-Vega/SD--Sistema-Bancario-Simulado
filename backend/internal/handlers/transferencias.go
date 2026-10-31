@@ -85,12 +85,22 @@ func TransferenciaInterna(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 		origen := cuentas[req.NumeroCuentaOrigen]
 		destino := cuentas[req.NumeroCuentaDestino]
 
+		salidoHoy, err := totalSalidoHoy(tx, bancoID, req.NumeroCuentaOrigen)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "error calculando límite diario"})
+			return
+		}
+
 		motivoRechazo := ""
 		switch {
 		case origen.Estado != models.EstadoActiva:
 			motivoRechazo = "cuenta origen no está activa"
 		case destino.Estado != models.EstadoActiva:
 			motivoRechazo = "cuenta destino no está activa"
+		case req.Importe > LimiteMaximoTransferencia:
+			motivoRechazo = "importe supera el límite máximo por transferencia"
+		case salidoHoy+req.Importe > LimiteDiarioCombinado:
+			motivoRechazo = "se supera el límite diario combinado"
 		case origen.Saldo < req.Importe:
 			motivoRechazo = "saldo insuficiente"
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log"
 	"net/http"
 	"time"
 
@@ -99,6 +100,11 @@ func reservarYDebitar(dbConn *sqlx.DB, bancoID string, req transferenciaInterban
 		SELECT * FROM cuentas WHERE banco_id = $1 AND numero_cuenta = $2 FOR UPDATE
 	`, bancoID, req.NumeroCuentaOrigen)
 
+	var salidoHoy int64
+	if err == nil {
+		salidoHoy, err = totalSalidoHoy(tx, bancoID, req.NumeroCuentaOrigen)
+	}
+
 	var motivoRechazo string
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -107,6 +113,10 @@ func reservarYDebitar(dbConn *sqlx.DB, bancoID string, req transferenciaInterban
 		return models.Operacion{}, err
 	case origen.Estado != models.EstadoActiva:
 		motivoRechazo = "cuenta origen no está activa"
+	case req.Importe > LimiteMaximoTransferencia:
+		motivoRechazo = "importe supera el límite máximo por transferencia"
+	case salidoHoy+req.Importe > LimiteDiarioCombinado:
+		motivoRechazo = "se supera el límite diario combinado"
 	case origen.Saldo < req.Importe:
 		motivoRechazo = "saldo insuficiente"
 	}
@@ -152,10 +162,13 @@ func resolverResultado(dbConn *sqlx.DB, op models.Operacion, resp *interbanco.Re
 	}
 
 	if ibErr, ok := callErr.(*interbanco.ErrorInterbancario); ok {
+		log.Printf("transferencia %s rechazada por el destino: %v", op.IdempotencyKey, ibErr)
 		motivo := ibErr.Mensaje
 		revertirReserva(dbConn, op)
 		return actualizarEstado(dbConn, op, models.OperacionRechazada, &motivo)
 	}
+
+	log.Printf("transferencia %s: error de red/parseo llamando al destino: %v", op.IdempotencyKey, callErr)
 
 	// Error de red/timeout: no sabemos si el destino llegó a procesar la
 	// solicitud. Consultamos antes de decidir cualquier cosa.
@@ -163,6 +176,9 @@ func resolverResultado(dbConn *sqlx.DB, op models.Operacion, resp *interbanco.Re
 	defer cancel()
 
 	consulta, consultaErr := cliente.ConsultarCredito(ctx, baseURL, op.IdempotencyKey)
+	if consultaErr != nil {
+		log.Printf("transferencia %s: la consulta de verificación también falló: %v", op.IdempotencyKey, consultaErr)
+	}
 	if consultaErr == nil {
 		if consulta.Estado == "ACREDITADO" {
 			return actualizarEstado(dbConn, op, models.OperacionCompletada, nil)
