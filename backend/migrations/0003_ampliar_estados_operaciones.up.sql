@@ -1,4 +1,4 @@
-ALTER TABLE operaciones DROP CONSTRAINT operaciones_estado_check;
+ALTER TABLE operaciones DROP CONSTRAINT check_estado;
 
-ALTER TABLE operaciones ADD CONSTRAINT operaciones_estado_check
+ALTER TABLE operaciones ADD CONSTRAINT check_estado_v2
     CHECK (estado IN ('PENDIENTE', 'RECIBIDA', 'RESERVADA', 'COMPLETADA', 'RECHAZADA', 'FALLIDA', 'REVERTIDA'));

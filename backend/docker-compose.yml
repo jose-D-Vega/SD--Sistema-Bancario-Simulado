@@ -8,6 +8,112 @@ services:
       - "8090:8080"   # UI web de administración (http://localhost:8090)
     volumes:
       - cockroach-data:/cockroach/cockroach-data
+    healthcheck:
+      test: ["CMD-SHELL", "./cockroach sql --insecure -e 'SELECT 1' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  db-init:
+    image: cockroachdb/cockroach:v23.2.8
+    depends_on:
+      cockroachdb:
+        condition: service_healthy
+    entrypoint:
+      - "./cockroach"
+      - "sql"
+      - "--insecure"
+      - "--host=cockroachdb"
+      - "-e"
+      - "CREATE DATABASE IF NOT EXISTS sudameris;"
+
+  migrate:
+    image: migrate/migrate:v4.17.1
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./migrations:/migrations
+    entrypoint:
+      - "migrate"
+      - "-path"
+      - "/migrations"
+      - "-database"
+      - "cockroachdb://root@cockroachdb:26257/sudameris?sslmode=disable"
+      - "up"
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sudameris-backend
+    ports:
+      - "8080:8080"
+    environment:
+      BANCO_ID: SUDAMERIS
+      PORT: 8080
+      DATABASE_URL: postgresql://root@cockroachdb:26257/sudameris?sslmode=disable
+      BANCO_PRIVATE_KEY: ${BANCO_PRIVATE_KEY}
+      REGISTRO_BANCOS_PATH: /registro_bancos.json
+    volumes:
+      - ./registro_bancos.json:/registro_bancos.json:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # --- Segunda instancia, solo para probar el flujo interbancario de
+  # punta a punta localmente, simulando un banco real separado. No se
+  # levanta con `docker compose up` normal: hace falta `--profile testing`.
+  db-init-bco-test:
+    image: cockroachdb/cockroach:v23.2.8
+    profiles: ["testing"]
+    depends_on:
+      cockroachdb:
+        condition: service_healthy
+    entrypoint:
+      - "./cockroach"
+      - "sql"
+      - "--insecure"
+      - "--host=cockroachdb"
+      - "-e"
+      - "CREATE DATABASE IF NOT EXISTS bco_test;"
+
+  migrate-bco-test:
+    image: migrate/migrate:v4.17.1
+    profiles: ["testing"]
+    depends_on:
+      db-init-bco-test:
+        condition: service_completed_successfully
+    volumes:
+      - ./migrations:/migrations
+    entrypoint:
+      - "migrate"
+      - "-path"
+      - "/migrations"
+      - "-database"
+      - "cockroachdb://root@cockroachdb:26257/bco_test?sslmode=disable"
+      - "up"
+
+  backend-bco-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bco-test-backend
+    profiles: ["testing"]
+    ports:
+      - "8091:8080"
+    environment:
+      BANCO_ID: BCO_TEST
+      PORT: 8080
+      DATABASE_URL: postgresql://root@cockroachdb:26257/bco_test?sslmode=disable
+      BANCO_PRIVATE_KEY: ${BCO_TEST_PRIVATE_KEY}
+      REGISTRO_BANCOS_PATH: /registro_bancos.json
+    volumes:
+      - ./registro_bancos_bco_test.json:/registro_bancos.json:ro
+    depends_on:
+      migrate-bco-test:
+        condition: service_completed_successfully
 
 volumes:
   cockroach-data:

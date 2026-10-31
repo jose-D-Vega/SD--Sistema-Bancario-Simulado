@@ -1,3 +1,4 @@
 .env
 *.pem
 bin/
+docker-compose.override.yml

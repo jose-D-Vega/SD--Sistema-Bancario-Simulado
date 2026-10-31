@@ -1,4 +1,4 @@
-.PHONY: run build tidy db-up db-down migrate-up migrate-down
+.PHONY: run build tidy db-up db-down migrate-up migrate-down docker-up docker-down docker-logs docker-rebuild
 
 run:
 	go run ./cmd/api
@@ -24,3 +24,17 @@ migrate-up:
 
 migrate-down:
 	migrate -path migrations -database "$$MIGRATE_DATABASE_URL" down 1
+
+# Levanta TODO (base + migraciones + backend) con un solo comando. Pensado
+# para quien no quiere instalar Go: solo necesita Docker.
+docker-up:
+	docker compose up -d --build
+
+docker-down:
+	docker compose down
+
+docker-logs:
+	docker compose logs -f backend
+
+docker-rebuild:
+	docker compose up -d --build backend

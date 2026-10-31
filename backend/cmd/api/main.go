@@ -1,14 +1,17 @@
 package main
 
 import (
+	"crypto/ed25519"
 	"log"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 
 	"github.com/sudameris/backend/internal/config"
+	"github.com/sudameris/backend/internal/crypto"
 	"github.com/sudameris/backend/internal/db"
 	"github.com/sudameris/backend/internal/handlers"
+	"github.com/sudameris/backend/internal/interbanco"
 )
 
 func main() {
@@ -22,9 +25,22 @@ func main() {
 	}
 	defer dbConn.Close()
 
-	publicKeys, err := config.CargarRegistroBancos(cfg.RegistroBancosPath)
+	registro, err := config.CargarRegistroBancos(cfg.RegistroBancosPath)
 	if err != nil {
 		log.Fatalf("no se pudo cargar el registro de bancos: %v", err)
+	}
+	publicKeys := map[string]ed25519.PublicKey{}
+	for id, b := range registro {
+		publicKeys[id] = b.PublicKey
+	}
+
+	var cliente *interbanco.Cliente
+	if cfg.PrivateKeyB64 != "" {
+		priv, err := crypto.LoadPrivateKey(cfg.PrivateKeyB64)
+		if err != nil {
+			log.Fatalf("clave privada inválida: %v", err)
+		}
+		cliente = interbanco.NuevoCliente(cfg.BancoID, priv)
 	}
 
 	router := gin.Default()
@@ -34,6 +50,9 @@ func main() {
 	router.POST("/cuentas", handlers.CrearCuenta(dbConn, cfg.BancoID))
 	router.GET("/cuentas/:numero_cuenta", handlers.ObtenerCuenta(dbConn, cfg.BancoID))
 	router.POST("/transferencias/internas", handlers.TransferenciaInterna(dbConn, cfg.BancoID))
+	if cliente != nil {
+		router.POST("/transferencias/interbancarias", handlers.TransferenciaInterbancaria(dbConn, cfg.BancoID, cliente, registro))
+	}
 
 	interbancario := router.Group("/interbancario")
 	interbancario.Use(handlers.VerifyBankSignature(publicKeys))

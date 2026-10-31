@@ -9,12 +9,16 @@ import (
 	"github.com/sudameris/backend/internal/crypto"
 )
 
-// CargarRegistroBancos lee un JSON {"BCO1": "clave_publica_base64", ...}
-// que distribuye el BCP simulado y devuelve el mapa listo para el
-// middleware de verificación de firma. Si path está vacío (todavía no
-// hay registro), devuelve un mapa vacío sin error.
-func CargarRegistroBancos(path string) (map[string]ed25519.PublicKey, error) {
-	result := map[string]ed25519.PublicKey{}
+type BancoRegistrado struct {
+	URL        string
+	PublicKey  ed25519.PublicKey
+}
+
+// CargarRegistroBancos lee un JSON {"BCO1": {"url": "...", "clave_publica": "..."}, ...}
+// que distribuye el BCP simulado. Si path está vacío, devuelve un mapa
+// vacío sin error (todavía no hay registro).
+func CargarRegistroBancos(path string) (map[string]BancoRegistrado, error) {
+	result := map[string]BancoRegistrado{}
 	if path == "" {
 		return result, nil
 	}
@@ -24,17 +28,20 @@ func CargarRegistroBancos(path string) (map[string]ed25519.PublicKey, error) {
 		return nil, fmt.Errorf("leyendo registro de bancos: %w", err)
 	}
 
-	var raw map[string]string
+	var raw map[string]struct {
+		URL          string `json:"url"`
+		ClavePublica string `json:"clave_publica"`
+	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parseando registro de bancos: %w", err)
 	}
 
-	for bancoID, pubB64 := range raw {
-		pub, err := crypto.LoadPublicKey(pubB64)
+	for bancoID, entry := range raw {
+		pub, err := crypto.LoadPublicKey(entry.ClavePublica)
 		if err != nil {
 			return nil, fmt.Errorf("clave pública inválida para %s: %w", bancoID, err)
 		}
-		result[bancoID] = pub
+		result[bancoID] = BancoRegistrado{URL: entry.URL, PublicKey: pub}
 	}
 
 	return result, nil

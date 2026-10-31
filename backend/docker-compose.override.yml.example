@@ -1,0 +1,23 @@
+# Si algún puerto del docker-compose.yml choca con algo que ya tenés
+# corriendo en tu máquina, copiá este archivo a "docker-compose.override.yml"
+# (sin el ".example") y cambiá el número de la IZQUIERDA (el de tu máquina)
+# en los servicios que necesites. El de la DERECHA (el del contenedor) no se
+# toca nunca, porque es el que usan los demás servicios para hablarse entre
+# sí por la red interna de Docker.
+#
+# docker compose detecta este archivo automáticamente, no hace falta
+# ningún flag extra: solo corré `docker compose up` como siempre.
+
+services:
+  backend:
+    ports:
+      - "8085:8080"   # ejemplo: cambiás 8080 por 8085 en tu máquina
+
+  cockroachdb:
+    ports:
+      - "26258:26257"
+      - "8095:8080"
+
+  backend-bco-test:
+    ports:
+      - "8096:8080"
