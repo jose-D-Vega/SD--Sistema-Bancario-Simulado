@@ -1,1 +1,4 @@
-{"BCO_TEST": {"url": "http://backend-bco-test:8080", "clave_publica": "T5yB0amqp4SaltMDKmjonXuKOPGN0SwSX01A6mTgXbU="}}
+{
+  "BCO_TEST": {"url": "http://backend-bco-test:8080", "clave_publica": "T5yB0amqp4SaltMDKmjonXuKOPGN0SwSX01A6mTgXbU="},
+  "SUDAMERIS": {"url": "http://backend:8080", "clave_publica": "ZsBaknXrh2+J1UbR3nJAGLEah1YfLwXb6qIklkRo9Lc="}
+}

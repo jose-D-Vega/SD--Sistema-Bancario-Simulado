@@ -13,6 +13,7 @@ type Cuenta struct {
 	Titular      string    `db:"titular" json:"titular"`
 	Saldo        int64     `db:"saldo" json:"saldo"`
 	Estado       string    `db:"estado" json:"estado"`
+	PinHash      *string   `db:"pin_hash" json:"-"`
 	CreadoEn     time.Time `db:"creado_en" json:"creado_en"`
 }
 

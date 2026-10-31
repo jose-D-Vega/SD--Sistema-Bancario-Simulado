@@ -20,6 +20,12 @@ const (
 	ErrConflictoIdempotencia = "CONFLICTO_IDEMPOTENCIA"
 	ErrNoEncontrado         = "NO_ENCONTRADO"
 	ErrInterno              = "ERROR_INTERNO"
+
+	// ErrPinIncorrecto no está en el catálogo mínimo del doc 02: es
+	// específico del cajero (doc 03). Si el BCP simulado termina
+	// estandarizando un código distinto entre los grupos, hay que
+	// actualizar esto.
+	ErrPinIncorrecto = "PIN_INCORRECTO"
 )
 
 var errorStatus = map[string]int{
@@ -34,6 +40,7 @@ var errorStatus = map[string]int{
 	ErrConflictoIdempotencia: http.StatusConflict,
 	ErrNoEncontrado:          http.StatusNotFound,
 	ErrInterno:               http.StatusInternalServerError,
+	ErrPinIncorrecto:         http.StatusUnauthorized,
 }
 
 func responderErrorContrato(c *gin.Context, codigo, mensaje string) {

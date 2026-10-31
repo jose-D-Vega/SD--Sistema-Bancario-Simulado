@@ -59,7 +59,13 @@ func main() {
 	{
 		interbancario.POST("/creditos", handlers.RecibirCredito(dbConn, cfg.BancoID))
 		interbancario.GET("/creditos/:transfer_id", handlers.ConsultarCredito(dbConn, cfg.BancoID))
-		// interbancario.POST("/cajero/autorizaciones", handlers.AutorizarRetiro(dbConn))
+	}
+
+	cajero := router.Group("/cajero")
+	cajero.Use(handlers.VerifyBankSignature(publicKeys))
+	{
+		cajero.POST("/autorizaciones", handlers.AutorizarRetiroCajero(dbConn, cfg.BancoID))
+		cajero.GET("/autorizaciones/:operacion_id", handlers.ConsultarAutorizacionCajero(dbConn, cfg.BancoID))
 	}
 
 	log.Printf("Sudameris backend escuchando en :%s (banco_id=%s)", cfg.Port, cfg.BancoID)

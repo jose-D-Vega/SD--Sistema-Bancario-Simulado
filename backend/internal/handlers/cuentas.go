@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/sudameris/backend/internal/models"
 )
@@ -16,6 +17,9 @@ type crearCuentaRequest struct {
 	NumeroCuenta string `json:"numero_cuenta" binding:"required"`
 	Titular      string `json:"titular" binding:"required"`
 	SaldoInicial int64  `json:"saldo_inicial"`
+	// Pin es opcional al crear; sin PIN la cuenta no puede operar en el
+	// cajero (doc 03). 4 dígitos, como cualquier cajero real.
+	Pin string `json:"pin" binding:"omitempty,len=4,numeric"`
 }
 
 func CrearCuenta(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
@@ -31,12 +35,23 @@ func CrearCuenta(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 			return
 		}
 
+		var pinHash *string
+		if req.Pin != "" {
+			hash, err := bcrypt.GenerateFromPassword([]byte(req.Pin), bcrypt.DefaultCost)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "error procesando el pin"})
+				return
+			}
+			s := string(hash)
+			pinHash = &s
+		}
+
 		var cuenta models.Cuenta
 		err := dbConn.Get(&cuenta, `
-			INSERT INTO cuentas (banco_id, numero_cuenta, titular, saldo)
-			VALUES ($1, $2, $3, $4)
+			INSERT INTO cuentas (banco_id, numero_cuenta, titular, saldo, pin_hash)
+			VALUES ($1, $2, $3, $4, $5)
 			RETURNING id, banco_id, numero_cuenta, titular, saldo, estado, creado_en
-		`, bancoID, req.NumeroCuenta, req.Titular, req.SaldoInicial)
+		`, bancoID, req.NumeroCuenta, req.Titular, req.SaldoInicial, pinHash)
 
 		if err != nil {
 			var pgErr *pgconn.PgError
