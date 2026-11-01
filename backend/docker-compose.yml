@@ -3,6 +3,7 @@ services:
     image: cockroachdb/cockroach:v23.2.8
     container_name: sudameris-cockroachdb
     command: start-single-node --insecure
+    restart: unless-stopped
     ports:
       - "26257:26257" # puerto SQL
       - "8090:8080"   # UI web de administración (http://localhost:8090)
@@ -48,6 +49,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: sudameris-backend
+    restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
@@ -101,6 +103,7 @@ services:
       dockerfile: Dockerfile
     container_name: bco-test-backend
     profiles: ["testing"]
+    restart: unless-stopped
     ports:
       - "8091:8080"
     environment:

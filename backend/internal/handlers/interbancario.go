@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -86,6 +87,7 @@ func RecibirCredito(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 		case errors.Is(err, sql.ErrNoRows):
 			motivoRechazo, codigoRechazo = "la cuenta destino no existe", ErrCuentaNoExiste
 		case err != nil:
+			log.Printf("RecibirCredito: error consultando cuenta destino %s: %v", req.CuentaDestino, err)
 			responderErrorContrato(c, ErrInterno, "error consultando cuenta destino")
 			return
 		case cuenta.Estado != models.EstadoActiva:

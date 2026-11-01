@@ -53,6 +53,10 @@ func main() {
 	router.POST("/transferencias/internas", handlers.TransferenciaInterna(dbConn, cfg.BancoID))
 	if cliente != nil {
 		router.POST("/transferencias/interbancarias", handlers.TransferenciaInterbancaria(dbConn, cfg.BancoID, cliente, registro))
+		router.POST("/transferencias/interbancarias/:idempotency_key/reconciliar",
+			handlers.ForzarReconciliacion(dbConn, cfg.BancoID, cliente, registro))
+		handlers.IniciarJobReconciliacion(dbConn, cliente, registro, cfg.BancoID, cfg.ReconciliacionIntervalo)
+		log.Printf("job de reconciliación corriendo cada %s", cfg.ReconciliacionIntervalo)
 	}
 
 	interbancario := router.Group("/interbancario")

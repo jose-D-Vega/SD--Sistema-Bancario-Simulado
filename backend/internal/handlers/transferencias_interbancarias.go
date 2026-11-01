@@ -207,6 +207,126 @@ func actualizarEstado(dbConn *sqlx.DB, op models.Operacion, estado string, motiv
 	return op
 }
 
+// ReconciliarOperacion vuelve a consultar el estado de una operación
+// PENDIENTE contra el banco destino, y la resuelve si ya hay respuesta.
+// La usan tanto el endpoint manual como el job en background.
+func ReconciliarOperacion(dbConn *sqlx.DB, cliente *interbanco.Cliente, registro map[string]config.BancoRegistrado, op models.Operacion) models.Operacion {
+	if op.Estado != models.OperacionPendiente || op.BancoDestino == nil {
+		return op
+	}
+	destino, ok := registro[*op.BancoDestino]
+	if !ok {
+		log.Printf("reconciliación de %s: banco destino %s ya no está en el registro", op.IdempotencyKey, *op.BancoDestino)
+		return op
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutLlamadaBanco)
+	defer cancel()
+
+	consulta, err := cliente.ConsultarCredito(ctx, destino.URL, op.IdempotencyKey)
+	if err == nil {
+		if consulta.Estado == "ACREDITADO" {
+			return actualizarEstado(dbConn, op, models.OperacionCompletada, nil)
+		}
+		motivo := "rechazado por el banco destino (confirmado por reconciliación)"
+		revertirReserva(dbConn, op)
+		return actualizarEstado(dbConn, op, models.OperacionRechazada, &motivo)
+	}
+
+	ibErr, esNoEncontrado := err.(*interbanco.ErrorInterbancario)
+	if !esNoEncontrado || ibErr.Codigo != ErrNoEncontrado {
+		// Error ambiguo (red/timeout de la propia consulta): no sabemos
+		// nada nuevo, seguimos esperando.
+		log.Printf("reconciliación de %s: todavía sin resolverse: %v", op.IdempotencyKey, err)
+		return op
+	}
+
+	// El destino confirma que nunca recibió nada: es seguro reenviar el
+	// crédito original, no hay riesgo de duplicar (y si en el medio sí lo
+	// hubiera recibido, su propia idempotencia nos protege igual).
+	log.Printf("reconciliación de %s: el destino no tiene registro, reintentando el envío original", op.IdempotencyKey)
+	payload := interbanco.CreditoPayload{
+		TransferID:    op.IdempotencyKey,
+		CuentaDestino: derefOrVacio(op.NumeroCuentaDestino),
+		BancoOrigen:   op.BancoOrigen,
+		CuentaOrigen:  op.NumeroCuentaOrigen,
+		Importe:       op.Importe,
+		Moneda:        "PYG",
+	}
+	resp, reenvioErr := cliente.EnviarCredito(ctx, destino.URL, payload)
+	if reenvioErr == nil && resp.Estado == "ACREDITADO" {
+		return actualizarEstado(dbConn, op, models.OperacionCompletada, nil)
+	}
+	if ibErr2, ok := reenvioErr.(*interbanco.ErrorInterbancario); ok {
+		motivo := ibErr2.Mensaje
+		revertirReserva(dbConn, op)
+		return actualizarEstado(dbConn, op, models.OperacionRechazada, &motivo)
+	}
+	log.Printf("reconciliación de %s: el reintento de envío también falló: %v", op.IdempotencyKey, reenvioErr)
+	return op
+}
+
+func derefOrVacio(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// IniciarJobReconciliacion lanza un goroutine que reintenta periódicamente
+// todas las operaciones PENDIENTE de este banco. No bloquea: corre en
+// segundo plano mientras el proceso esté vivo.
+func IniciarJobReconciliacion(dbConn *sqlx.DB, cliente *interbanco.Cliente, registro map[string]config.BancoRegistrado, bancoID string, intervalo time.Duration) {
+	go func() {
+		ticker := time.NewTicker(intervalo)
+		defer ticker.Stop()
+		for range ticker.C {
+			var pendientes []models.Operacion
+			err := dbConn.Select(&pendientes, `
+				SELECT * FROM operaciones WHERE banco_origen = $1 AND tipo = $2 AND estado = $3
+			`, bancoID, models.TipoTransferenciaInterbancaria, models.OperacionPendiente)
+			if err != nil {
+				log.Printf("job de reconciliación: error listando pendientes: %v", err)
+				continue
+			}
+			for _, op := range pendientes {
+				if resultado := ReconciliarOperacion(dbConn, cliente, registro, op); resultado.Estado != models.OperacionPendiente {
+					log.Printf("job de reconciliación: %s pasó a %s", op.IdempotencyKey, resultado.Estado)
+				}
+			}
+		}
+	}()
+}
+
+// ForzarReconciliacion es el endpoint manual: POST
+// /transferencias/interbancarias/{idempotency_key}/reconciliar, para no
+// tener que esperar al próximo ciclo del job.
+func ForzarReconciliacion(dbConn *sqlx.DB, bancoID string, cliente *interbanco.Cliente, registro map[string]config.BancoRegistrado) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idempotencyKey := c.Param("idempotency_key")
+
+		var op models.Operacion
+		err := dbConn.Get(&op, `
+			SELECT * FROM operaciones WHERE banco_origen = $1 AND idempotency_key = $2 AND tipo = $3
+		`, bancoID, idempotencyKey, models.TipoTransferenciaInterbancaria)
+		if errors.Is(err, sql.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "no existe esa operación"})
+			return
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "error consultando la operación"})
+			return
+		}
+		if op.Estado != models.OperacionPendiente {
+			c.JSON(http.StatusConflict, gin.H{"error": "la operación no está en estado PENDIENTE", "estado_actual": op.Estado})
+			return
+		}
+
+		resultado := ReconciliarOperacion(dbConn, cliente, registro, op)
+		responderOperacionInterbancaria(c, resultado)
+	}
+}
+
 func responderOperacionInterbancaria(c *gin.Context, op models.Operacion) {
 	switch op.Estado {
 	case models.OperacionCompletada:
