@@ -32,6 +32,14 @@ func estadoExterno(interno string) string {
 	return "RECHAZADO"
 }
 
+func responderCredito(c *gin.Context, transferID string, op models.Operacion) {
+	body := gin.H{"transfer_id": transferID, "estado": estadoExterno(op.Estado)}
+	if op.MotivoRechazo != nil {
+		body["motivo_rechazo"] = *op.MotivoRechazo
+	}
+	c.JSON(http.StatusOK, body)
+}
+
 // RecibirCredito implementa POST /interbancario/creditos (doc 02, paso 2):
 // otro banco nos pide acreditar un importe en una cuenta nuestra.
 func RecibirCredito(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
@@ -61,7 +69,7 @@ func RecibirCredito(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 				responderErrorContrato(c, ErrConflictoIdempotencia, "transfer_id ya usado con datos distintos")
 				return
 			}
-			c.JSON(http.StatusOK, gin.H{"transfer_id": req.TransferID, "estado": estadoExterno(existente.Estado)})
+			responderCredito(c, req.TransferID, existente)
 			return
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
@@ -81,26 +89,25 @@ func RecibirCredito(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 			SELECT * FROM cuentas WHERE banco_id = $1 AND numero_cuenta = $2 FOR UPDATE
 		`, bancoID, req.CuentaDestino)
 
-		var motivoRechazo string
 		var codigoRechazo string
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
-			motivoRechazo, codigoRechazo = "la cuenta destino no existe", ErrCuentaNoExiste
+			codigoRechazo = ErrCuentaNoExiste
 		case err != nil:
 			log.Printf("RecibirCredito: error consultando cuenta destino %s: %v", req.CuentaDestino, err)
 			responderErrorContrato(c, ErrInterno, "error consultando cuenta destino")
 			return
 		case cuenta.Estado != models.EstadoActiva:
-			motivoRechazo, codigoRechazo = "la cuenta destino no está activa", ErrCuentaInactiva
+			codigoRechazo = ErrCuentaInactiva
 		}
 
-		if motivoRechazo != "" {
+		if codigoRechazo != "" {
 			if _, insErr := tx.Exec(`
 				INSERT INTO operaciones (tipo, idempotency_key, banco_origen, numero_cuenta_origen,
 					banco_destino, numero_cuenta_destino, importe, estado, motivo_rechazo)
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			`, models.TipoTransferenciaInterbancaria, req.TransferID, bankID, req.CuentaOrigen,
-				bancoID, req.CuentaDestino, req.Importe, models.OperacionRechazada, motivoRechazo); insErr != nil {
+				bancoID, req.CuentaDestino, req.Importe, models.OperacionRechazada, codigoRechazo); insErr != nil {
 				responderErrorContrato(c, ErrInterno, "error registrando operación")
 				return
 			}
@@ -108,7 +115,7 @@ func RecibirCredito(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 				responderErrorContrato(c, ErrInterno, "error confirmando operación")
 				return
 			}
-			responderErrorContrato(c, codigoRechazo, motivoRechazo)
+			c.JSON(http.StatusOK, gin.H{"transfer_id": req.TransferID, "estado": "RECHAZADO", "motivo_rechazo": codigoRechazo})
 			return
 		}
 
@@ -157,6 +164,6 @@ func ConsultarCredito(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"transfer_id": transferID, "estado": estadoExterno(op.Estado)})
+		responderCredito(c, transferID, op)
 	}
 }

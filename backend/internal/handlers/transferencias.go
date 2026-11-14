@@ -36,13 +36,21 @@ func TransferenciaInterna(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 		}
 
 		// Fast path: si ya procesamos esta idempotency_key antes, devolvemos
-		// el resultado guardado en vez de reprocesar.
+		// el resultado guardado en vez de reprocesar — pero solo si la
+		// solicitud es igual a la primera vez (doc 02, sección 3). Si alguno
+		// de los datos cambió, es un conflicto de idempotencia, no un reintento.
 		var existente models.Operacion
 		err := dbConn.Get(&existente, `
 			SELECT * FROM operaciones
 			WHERE banco_origen = $1 AND idempotency_key = $2 AND tipo = $3
 		`, bancoID, req.IdempotencyKey, models.TipoTransferenciaInterna)
 		if err == nil {
+			if existente.NumeroCuentaOrigen != req.NumeroCuentaOrigen ||
+				existente.NumeroCuentaDestino == nil || *existente.NumeroCuentaDestino != req.NumeroCuentaDestino ||
+				existente.Importe != req.Importe {
+				responderErrorContrato(c, ErrConflictoIdempotencia, "la clave de idempotencia ya se usó con datos distintos")
+				return
+			}
 			responderOperacion(c, existente)
 			return
 		}

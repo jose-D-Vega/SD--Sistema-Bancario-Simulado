@@ -49,6 +49,13 @@ func TransferenciaInterbancaria(dbConn *sqlx.DB, bancoID string, cliente *interb
 			WHERE banco_origen = $1 AND idempotency_key = $2 AND tipo = $3
 		`, bancoID, req.IdempotencyKey, models.TipoTransferenciaInterbancaria)
 		if err == nil {
+			if existente.NumeroCuentaOrigen != req.NumeroCuentaOrigen ||
+				existente.BancoDestino == nil || *existente.BancoDestino != req.BancoDestino ||
+				existente.NumeroCuentaDestino == nil || *existente.NumeroCuentaDestino != req.NumeroCuentaDestino ||
+				existente.Importe != req.Importe {
+				responderErrorContrato(c, ErrConflictoIdempotencia, "la clave de idempotencia ya se usó con datos distintos")
+				return
+			}
 			responderOperacionInterbancaria(c, existente)
 			return
 		}
@@ -161,6 +168,12 @@ func resolverResultado(dbConn *sqlx.DB, op models.Operacion, resp *interbanco.Re
 		return actualizarEstado(dbConn, op, models.OperacionCompletada, nil)
 	}
 
+	if callErr == nil && resp.Estado == "RECHAZADO" {
+		motivo := resp.MotivoRechazo
+		revertirReserva(dbConn, op)
+		return actualizarEstado(dbConn, op, models.OperacionRechazada, &motivo)
+	}
+
 	if ibErr, ok := callErr.(*interbanco.ErrorInterbancario); ok {
 		log.Printf("transferencia %s rechazada por el destino: %v", op.IdempotencyKey, ibErr)
 		motivo := ibErr.Mensaje
@@ -183,7 +196,10 @@ func resolverResultado(dbConn *sqlx.DB, op models.Operacion, resp *interbanco.Re
 		if consulta.Estado == "ACREDITADO" {
 			return actualizarEstado(dbConn, op, models.OperacionCompletada, nil)
 		}
-		motivo := "rechazado por el banco destino (confirmado por consulta)"
+		motivo := consulta.MotivoRechazo
+		if motivo == "" {
+			motivo = "rechazado por el banco destino (confirmado por consulta)"
+		}
 		revertirReserva(dbConn, op)
 		return actualizarEstado(dbConn, op, models.OperacionRechazada, &motivo)
 	}
@@ -228,7 +244,10 @@ func ReconciliarOperacion(dbConn *sqlx.DB, cliente *interbanco.Cliente, registro
 		if consulta.Estado == "ACREDITADO" {
 			return actualizarEstado(dbConn, op, models.OperacionCompletada, nil)
 		}
-		motivo := "rechazado por el banco destino (confirmado por reconciliación)"
+		motivo := consulta.MotivoRechazo
+		if motivo == "" {
+			motivo = "rechazado por el banco destino (confirmado por reconciliación)"
+		}
 		revertirReserva(dbConn, op)
 		return actualizarEstado(dbConn, op, models.OperacionRechazada, &motivo)
 	}

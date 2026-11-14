@@ -40,8 +40,9 @@ type CreditoPayload struct {
 }
 
 type RespuestaCredito struct {
-	TransferID string `json:"transfer_id"`
-	Estado     string `json:"estado"`
+	TransferID    string `json:"transfer_id"`
+	Estado        string `json:"estado"`
+	MotivoRechazo string `json:"motivo_rechazo"`
 }
 
 // ErrorInterbancario es una respuesta de error explícita del banco
@@ -99,10 +100,11 @@ func (c *Cliente) request(ctx context.Context, method, baseURL, path, idempotenc
 	defer resp.Body.Close()
 
 	var parsed struct {
-		TransferID string `json:"transfer_id"`
-		Estado     string `json:"estado"`
-		Error      string `json:"error"`
-		Mensaje    string `json:"mensaje"`
+		TransferID    string `json:"transfer_id"`
+		Estado        string `json:"estado"`
+		MotivoRechazo string `json:"motivo_rechazo"`
+		Error         string `json:"error"`
+		Mensaje       string `json:"mensaje"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
 		return nil, fmt.Errorf("respuesta inválida del banco destino: %w", err)
@@ -111,5 +113,5 @@ func (c *Cliente) request(ctx context.Context, method, baseURL, path, idempotenc
 	if resp.StatusCode != http.StatusOK {
 		return nil, &ErrorInterbancario{Codigo: parsed.Error, Mensaje: parsed.Mensaje, Status: resp.StatusCode}
 	}
-	return &RespuestaCredito{TransferID: parsed.TransferID, Estado: parsed.Estado}, nil
+	return &RespuestaCredito{TransferID: parsed.TransferID, Estado: parsed.Estado, MotivoRechazo: parsed.MotivoRechazo}, nil
 }

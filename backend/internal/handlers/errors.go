@@ -9,22 +9,26 @@ import (
 // Catálogo de códigos de error del doc 02, sección 6, con su HTTP status
 // correspondiente.
 const (
-	ErrCuentaNoExiste       = "CUENTA_NO_EXISTE"
-	ErrCuentaInactiva       = "CUENTA_INACTIVA"
-	ErrFondosInsuficientes  = "FONDOS_INSUFICIENTES"
-	ErrLimiteExcedido       = "LIMITE_EXCEDIDO"
-	ErrBancoNoReconocido    = "BANCO_NO_RECONOCIDO"
-	ErrSolicitudInvalida    = "SOLICITUD_INVALIDA"
-	ErrFirmaInvalida        = "FIRMA_INVALIDA"
-	ErrTimestampFueraRango  = "TIMESTAMP_FUERA_DE_RANGO"
+	ErrCuentaNoExiste        = "CUENTA_NO_EXISTE"
+	ErrCuentaInactiva        = "CUENTA_INACTIVA"
+	ErrFondosInsuficientes   = "FONDOS_INSUFICIENTES"
+	ErrLimiteExcedido        = "LIMITE_EXCEDIDO"
+	ErrBancoNoReconocido     = "BANCO_NO_RECONOCIDO"
+	ErrSolicitudInvalida     = "SOLICITUD_INVALIDA"
+	ErrFirmaInvalida         = "FIRMA_INVALIDA"
+	ErrTimestampFueraRango   = "TIMESTAMP_FUERA_DE_RANGO"
 	ErrConflictoIdempotencia = "CONFLICTO_IDEMPOTENCIA"
-	ErrNoEncontrado         = "NO_ENCONTRADO"
-	ErrInterno              = "ERROR_INTERNO"
+	ErrNoEncontrado          = "NO_ENCONTRADO"
+	ErrInterno               = "ERROR_INTERNO"
 
-	// ErrPinIncorrecto no está en el catálogo mínimo del doc 02: es
-	// específico del cajero (doc 03). Si el BCP simulado termina
-	// estandarizando un código distinto entre los grupos, hay que
-	// actualizar esto.
+	// PIN_INCORRECTO sí está en el catálogo mínimo del doc 02 (sección 6,
+	// HTTP 403), aunque solo aplica a operaciones de cajero (doc 03). En
+	// la práctica, al usarse como motivo_rechazo de POST
+	// /cajero/autorizaciones, nunca se devuelve como error HTTP directo
+	// (va envuelto en un 200 OK con estado RECHAZADO, como pide el doc 02
+	// sección 6 para los rechazos de negocio de ese endpoint) — este 403
+	// queda documentado acá por si en algún momento se usa en otro
+	// contexto.
 	ErrPinIncorrecto = "PIN_INCORRECTO"
 )
 
@@ -40,7 +44,7 @@ var errorStatus = map[string]int{
 	ErrConflictoIdempotencia: http.StatusConflict,
 	ErrNoEncontrado:          http.StatusNotFound,
 	ErrInterno:               http.StatusInternalServerError,
-	ErrPinIncorrecto:         http.StatusUnauthorized,
+	ErrPinIncorrecto:         http.StatusForbidden,
 }
 
 func responderErrorContrato(c *gin.Context, codigo, mensaje string) {

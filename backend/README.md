@@ -104,22 +104,58 @@ curl http://localhost:8080/health
 backend/
 ├── cmd/api/            # entrypoint (main.go)
 ├── internal/
-│   ├── config/          # carga de variables de entorno
+│   ├── config/          # carga de variables de entorno y del registro de bancos
 │   ├── crypto/           # firma/verificación Ed25519 (doc 02)
 │   ├── db/                # conexión a CockroachDB
-│   ├── handlers/          # endpoints HTTP y middlewares
-│   └── models/            # (pendiente) structs de dominio
+│   ├── handlers/          # endpoints HTTP, middlewares y catálogo de errores
+│   ├── interbanco/        # cliente HTTP saliente hacia otros bancos (doc 02)
+│   └── models/            # structs de dominio (Cuenta, Operacion)
 ├── migrations/          # esquema de base, versionado con golang-migrate
-├── scripts/             # scripts de prueba manual
+├── scripts/             # scripts de prueba manual (curl + firma Ed25519)
 ├── Dockerfile           # imagen del backend
-├── docker-compose.yml   # CockroachDB + migraciones + backend
+├── docker-compose.yml   # CockroachDB + migraciones + backend (+ un segundo
+│                         # banco de prueba con --profile testing)
 └── .env.example
 ```
 
 ## Estado actual
 
-Esqueleto inicial: conexión a base, migraciones de `cuentas` y
-`operaciones`, middleware de verificación de firma entre bancos, y
-endpoint `/health`. Todavía faltan implementar los endpoints de
-negocio del documento 02 (transferencias internas e interbancarias) y
-03 (autorizaciones de cajero).
+### Implementado
+
+- **Cuentas**: creación (`POST /cuentas`, con PIN opcional hasheado con
+  bcrypt), cambio de estado (`PATCH /cuentas/:numero_cuenta/estado`) y
+  consulta (`GET /cuentas/:numero_cuenta`, firmada — la usan otros
+  bancos y cajeros).
+- **Transferencias internas** (`POST /transferencias/internas`, doc 01 §5.1):
+  transacción local con locking ordenado de cuentas (evita deadlocks),
+  validación de límites y saldo, e idempotencia con detección de
+  conflicto si se reintenta la misma clave con datos distintos.
+- **Transferencias interbancarias salientes** (`POST /transferencias/interbancarias`,
+  doc 02 §4): reserva en origen → llamada firmada al destino →
+  confirmación o reversa según la respuesta. Ante timeout, consulta el
+  estado en vez de asumir un resultado, y si tampoco hay respuesta deja
+  la operación en `PENDIENTE` con reconciliación automática en
+  background (configurable con `RECONCILIACION_INTERVALO_SEGUNDOS`) y
+  un endpoint manual (`POST /transferencias/interbancarias/:idempotency_key/reconciliar`)
+  para forzarla.
+- **Recepción de créditos interbancarios** (`POST /interbancario/creditos`,
+  `GET /interbancario/creditos/:transfer_id`): valida, acredita de forma
+  atómica, e idempotencia con chequeo de conflicto si cambian los datos.
+- **Cajero** (`POST /cajero/autorizaciones`, `GET /cajero/autorizaciones/:operacion_id`,
+  doc 03): valida PIN (bcrypt), estado de cuenta, límites y saldo; debita
+  de forma atómica; idempotente.
+- **Firma Ed25519 entre bancos** (doc 02 §1): módulo `internal/crypto` +
+  middleware `VerifyBankSignature`, que valida headers, ventana de
+  `X-Timestamp` y la firma contra la cadena canónica.
+- **Catálogo de errores** del doc 02 §6, con su código HTTP correspondiente.
+
+### Pendiente / fuera de este backend
+
+- `frontend/` y `cajero/` (la interfaz del cajero) están vacíos
+  todavía — lo hecho hasta ahora es solo este backend.
+- No hay tests automatizados (`go test`); las pruebas son manuales, con
+  los scripts de `scripts/` firmando requests a mano con `curl` +
+  `openssl`.
+- Los 20 casos del plan de pruebas (documento 04) todavía no se
+  ejecutaron de punta a punta contra los bancos de los otros 3 grupos —
+  solo contra el segundo backend de prueba local (`backend-bco-test`).

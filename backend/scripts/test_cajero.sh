@@ -21,10 +21,13 @@ TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 BODY=$(printf '{"operacion_id":"%s","banco_cuenta":"%s","numero_cuenta":"%s","pin":"%s","importe":%s,"moneda":"PYG"}' \
   "$OPERACION_ID" "$BANCO_CUENTA" "$NUMERO_CUENTA" "$PIN" "$IMPORTE")
 
-CANONICAL=$(printf '%s\n%s\n%s\n%s\n%s\n%s' "$METODO" "$RUTA" "$BANK_ID" "$OPERACION_ID" "$TIMESTAMP" "$BODY")
-
+# Se escribe directo al archivo con printf (sin pasar por una variable
+# $(...)) porque la sustitución de comandos de bash recorta los saltos de
+# línea finales, lo que puede desalinear la firma si algún día BODY queda
+# vacío (ver test_consulta_cuenta.sh, donde este mismo patrón causaba
+# FIRMA_INVALIDA en un GET sin body).
 CANON_FILE=$(mktemp)
-printf '%s' "$CANONICAL" > "$CANON_FILE"
+printf '%s\n%s\n%s\n%s\n%s\n%s' "$METODO" "$RUTA" "$BANK_ID" "$OPERACION_ID" "$TIMESTAMP" "$BODY" > "$CANON_FILE"
 SIGNATURE=$(openssl pkeyutl -sign -inkey "$PRIVATE_KEY_PEM" -rawin -in "$CANON_FILE" | base64 -w0)
 rm -f "$CANON_FILE"
 

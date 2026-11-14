@@ -48,7 +48,6 @@ func main() {
 	router.GET("/health", handlers.Health(dbConn))
 
 	router.POST("/cuentas", handlers.CrearCuenta(dbConn, cfg.BancoID))
-	router.GET("/cuentas/:numero_cuenta", handlers.ObtenerCuenta(dbConn, cfg.BancoID))
 	router.PATCH("/cuentas/:numero_cuenta/estado", handlers.CambiarEstadoCuenta(dbConn, cfg.BancoID))
 	router.POST("/transferencias/internas", handlers.TransferenciaInterna(dbConn, cfg.BancoID))
 	if cliente != nil {
@@ -65,6 +64,8 @@ func main() {
 		interbancario.POST("/creditos", handlers.RecibirCredito(dbConn, cfg.BancoID))
 		interbancario.GET("/creditos/:transfer_id", handlers.ConsultarCredito(dbConn, cfg.BancoID))
 	}
+
+	router.GET("/cuentas/:numero_cuenta", handlers.VerifyBankSignature(publicKeys), handlers.ObtenerCuenta(dbConn, cfg.BancoID))
 
 	cajero := router.Group("/cajero")
 	cajero.Use(handlers.VerifyBankSignature(publicKeys))

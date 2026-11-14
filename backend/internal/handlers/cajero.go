@@ -28,6 +28,14 @@ func estadoExternoCajero(interno string) string {
 	return "RECHAZADO"
 }
 
+func responderAutorizacion(c *gin.Context, operacionID string, op models.Operacion) {
+	body := gin.H{"operacion_id": operacionID, "estado": estadoExternoCajero(op.Estado)}
+	if op.MotivoRechazo != nil {
+		body["motivo_rechazo"] = *op.MotivoRechazo
+	}
+	c.JSON(http.StatusOK, body)
+}
+
 // AutorizarRetiroCajero implementa POST /cajero/autorizaciones (doc 03):
 // el cajero (de este banco o de cualquier otro) le pide al banco emisor
 // que autorice y debite un retiro de una cuenta propia.
@@ -54,7 +62,11 @@ func AutorizarRetiroCajero(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 			SELECT * FROM operaciones WHERE banco_origen = $1 AND idempotency_key = $2 AND tipo = $3
 		`, bankID, req.OperacionID, models.TipoRetiroCajero)
 		if err == nil {
-			c.JSON(http.StatusOK, gin.H{"operacion_id": req.OperacionID, "estado": estadoExternoCajero(existente.Estado)})
+			if existente.NumeroCuentaOrigen != req.NumeroCuenta || existente.Importe != req.Importe {
+				responderErrorContrato(c, ErrConflictoIdempotencia, "el operacion_id ya se usó con datos distintos")
+				return
+			}
+			responderAutorizacion(c, req.OperacionID, existente)
 			return
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
@@ -79,32 +91,32 @@ func AutorizarRetiroCajero(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 			salidoHoy, err = totalSalidoHoy(tx, bancoID, req.NumeroCuenta)
 		}
 
-		var motivoRechazo, codigoRechazo string
+		var codigoRechazo string
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
-			motivoRechazo, codigoRechazo = "la cuenta no existe", ErrCuentaNoExiste
+			codigoRechazo = ErrCuentaNoExiste
 		case err != nil:
 			responderErrorContrato(c, ErrInterno, "error consultando la cuenta")
 			return
 		case cuenta.Estado != models.EstadoActiva:
-			motivoRechazo, codigoRechazo = "la cuenta no está activa", ErrCuentaInactiva
+			codigoRechazo = ErrCuentaInactiva
 		case cuenta.PinHash == nil || bcrypt.CompareHashAndPassword([]byte(*cuenta.PinHash), []byte(req.Pin)) != nil:
-			motivoRechazo, codigoRechazo = "PIN incorrecto", ErrPinIncorrecto
+			codigoRechazo = ErrPinIncorrecto
 		case req.Importe > LimiteMaximoRetiroCajero:
-			motivoRechazo, codigoRechazo = "importe supera el límite por retiro", ErrLimiteExcedido
+			codigoRechazo = ErrLimiteExcedido
 		case salidoHoy+req.Importe > LimiteDiarioCombinado:
-			motivoRechazo, codigoRechazo = "se supera el límite diario combinado", ErrLimiteExcedido
+			codigoRechazo = ErrLimiteExcedido
 		case cuenta.Saldo < req.Importe:
-			motivoRechazo, codigoRechazo = "saldo insuficiente", ErrFondosInsuficientes
+			codigoRechazo = ErrFondosInsuficientes
 		}
 
-		if motivoRechazo != "" {
+		if codigoRechazo != "" {
 			if _, insErr := tx.Exec(`
 				INSERT INTO operaciones (tipo, idempotency_key, banco_origen, numero_cuenta_origen,
 					banco_destino, importe, estado, motivo_rechazo)
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			`, models.TipoRetiroCajero, req.OperacionID, bankID, req.NumeroCuenta,
-				bancoID, req.Importe, models.OperacionRechazada, motivoRechazo); insErr != nil {
+				bancoID, req.Importe, models.OperacionRechazada, codigoRechazo); insErr != nil {
 				responderErrorContrato(c, ErrInterno, "error registrando operación")
 				return
 			}
@@ -112,7 +124,7 @@ func AutorizarRetiroCajero(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 				responderErrorContrato(c, ErrInterno, "error confirmando operación")
 				return
 			}
-			responderErrorContrato(c, codigoRechazo, motivoRechazo)
+			c.JSON(http.StatusOK, gin.H{"operacion_id": req.OperacionID, "estado": "RECHAZADO", "motivo_rechazo": codigoRechazo})
 			return
 		}
 
@@ -160,6 +172,6 @@ func ConsultarAutorizacionCajero(dbConn *sqlx.DB, bancoID string) gin.HandlerFun
 			return
 		}
 
-		c.JSON(http.StatusOK, gin.H{"operacion_id": operacionID, "estado": estadoExternoCajero(op.Estado)})
+		responderAutorizacion(c, operacionID, op)
 	}
 }

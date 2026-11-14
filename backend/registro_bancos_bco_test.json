@@ -1,1 +1,14 @@
-{"SUDAMERIS": {"url": "http://backend:8080", "clave_publica": "ZsBaknXrh2+J1UbR3nJAGLEah1YfLwXb6qIklkRo9Lc="}}
+{
+  "version": 1,
+  "fecha_actualizacion": "2026-11-08",
+  "algoritmo_firma": "Ed25519",
+  "formato_clave_publica": "base64 de los 32 bytes crudos de la clave pública (sin cabecera PEM, sin saltos de línea)",
+  "bancos": [
+    {
+      "banco_id": "SUDAMERIS",
+      "nombre": "Sudameris",
+      "url_base": "http://backend:8080",
+      "clave_publica": "ZsBaknXrh2+J1UbR3nJAGLEah1YfLwXb6qIklkRo9Lc="
+    }
+  ]
+}

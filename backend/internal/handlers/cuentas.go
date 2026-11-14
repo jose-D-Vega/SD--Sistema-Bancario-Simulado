@@ -127,10 +127,10 @@ func ObtenerCuenta(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "cuenta no encontrada"})
+				responderErrorContrato(c, ErrCuentaNoExiste, "la cuenta no existe en este banco")
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "error consultando la cuenta"})
+			responderErrorContrato(c, ErrInterno, "error consultando la cuenta")
 			return
 		}
 
