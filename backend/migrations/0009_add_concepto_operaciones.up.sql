@@ -1,0 +1,17 @@
+-- "concepto" es el texto libre y opcional que el doc 02 (sección del
+-- payload de POST /interbancario/creditos) ya contempla, pero que hasta
+-- ahora ni se recibía como parte de nuestras propias transferencias
+-- (internas e interbancarias salientes) ni se guardaba en ningún lado:
+-- el campo llegaba en interbancario.creditoRequest y se descartaba.
+--
+-- Nullable a propósito (no vacío ""): NULL significa "no se mandó
+-- concepto", que es distinto de "se mandó un concepto vacío". Dejamos que
+-- el frontend decida qué texto por default mostrar cuando es NULL (como
+-- ya hace hoy en bank.js: `transfer.concept || 'Transferencia enviada'`)
+-- en vez de que el backend invente una etiqueta.
+--
+-- No se valida el límite de longitud acá (eso lo hace la capa de
+-- handlers, ver internal/handlers/concepto.go) porque una restricción
+-- CHECK haría que una migración futura que lo cambie sea más compleja de
+-- lo que hace falta para un campo puramente descriptivo.
+ALTER TABLE operaciones ADD COLUMN IF NOT EXISTS concepto TEXT;

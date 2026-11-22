@@ -13,6 +13,12 @@ import (
 type BancoRegistrado struct {
 	URL       string
 	PublicKey ed25519.PublicKey
+	// Nombre es puramente informativo (viene del campo "nombre" del
+	// registro oficial, doc 06) — no se usa para firmar ni verificar nada,
+	// solo para mostrarlo en GET /bancos (banca personal). Puede venir
+	// vacío si el registro no lo completó; el que lo consuma decide el
+	// fallback (ver ListarBancos).
+	Nombre string
 }
 
 // registroBancosFile refleja el formato oficial que distribuye el BCP
@@ -72,7 +78,7 @@ func CargarRegistroBancos(path string) (map[string]BancoRegistrado, error) {
 		if err != nil {
 			return nil, fmt.Errorf("clave pública inválida para %s: %w", entry.BancoID, err)
 		}
-		result[entry.BancoID] = BancoRegistrado{URL: entry.URLBase, PublicKey: pub}
+		result[entry.BancoID] = BancoRegistrado{URL: entry.URLBase, PublicKey: pub, Nombre: entry.Nombre}
 	}
 
 	return result, nil

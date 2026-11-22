@@ -120,7 +120,7 @@ backend/
 
 ## Estado actual
 
-### Implementado
+### Implementado — contrato del BCP (docs 01-03)
 
 - **Cuentas**: creación (`POST /cuentas`, con PIN opcional hasheado con
   bcrypt), cambio de estado (`PATCH /cuentas/:numero_cuenta/estado`) y
@@ -129,7 +129,8 @@ backend/
 - **Transferencias internas** (`POST /transferencias/internas`, doc 01 §5.1):
   transacción local con locking ordenado de cuentas (evita deadlocks),
   validación de límites y saldo, e idempotencia con detección de
-  conflicto si se reintenta la misma clave con datos distintos.
+  conflicto si se reintenta la misma clave con datos distintos. Acepta un
+  `concepto` de texto libre opcional (ver más abajo).
 - **Transferencias interbancarias salientes** (`POST /transferencias/interbancarias`,
   doc 02 §4): reserva en origen → llamada firmada al destino →
   confirmación o reversa según la respuesta. Ante timeout, consulta el
@@ -141,6 +142,8 @@ backend/
 - **Recepción de créditos interbancarios** (`POST /interbancario/creditos`,
   `GET /interbancario/creditos/:transfer_id`): valida, acredita de forma
   atómica, e idempotencia con chequeo de conflicto si cambian los datos.
+  El `concepto` que mande el banco origen se guarda (truncado si hace
+  falta, nunca rechazado — ver más abajo).
 - **Cajero** (`POST /cajero/autorizaciones`, `GET /cajero/autorizaciones/:operacion_id`,
   doc 03): valida PIN (bcrypt), estado de cuenta, límites y saldo; debita
   de forma atómica; idempotente.
@@ -149,13 +152,62 @@ backend/
   `X-Timestamp` y la firma contra la cadena canónica.
 - **Catálogo de errores** del doc 02 §6, con su código HTTP correspondiente.
 
+### Implementado — banca personal (extensión propia, fuera del contrato)
+
+Todo esto es lo que el backend ofrece para que el frontend tenga una app
+de usuario final real, además de lo mínimo que pide el BCP:
+
+- **Usuarios**: registro (`POST /usuarios/registro`, ya deja logueado con
+  una sesión), login/logout (`POST /usuarios/login`, `POST /usuarios/logout`),
+  perfil propio (`GET`/`PATCH /usuarios/me`) y cambio de contraseña
+  (`PATCH /usuarios/me/password`, que invalida **todas** las sesiones
+  activas de ese usuario, no solo la actual).
+- **Cuentas propias**: listado (`GET /usuarios/me/cuentas`, filtrado por
+  usuario y por banco) y alias (`PATCH /cuentas/:numero_cuenta/alias`,
+  único dentro de este banco — no se comparte entre bancos, el contrato
+  solo conoce `banco_id + numero_cuenta`).
+- **Movimientos** (`GET /cuentas/:numero_cuenta/movimientos`): historial
+  con dirección (entrante/saliente) calculada, filtro por tipo y rango de
+  fechas, y paginación por cursor. Excluye a propósito los créditos
+  entrantes que no llegaron a completarse (ver el comentario sobre el
+  bug "ingreso fantasma" en `movimientos.go`).
+- **Wizard de envío**: `GET /bancos` (lista los 4 bancos para elegir
+  destino) y `GET /transferencias/resolver-destino` (resuelve un alias o
+  número de cuenta antes de confirmar, sin necesidad de ir y volver con
+  un error del contrato).
+- **`concepto`**: texto libre opcional (doc 02) en las tres rutas de
+  transferencia. Lo que nosotros mandamos se valida con un límite de 140
+  caracteres y se rechaza si se pasa (`internal/handlers/concepto.go`);
+  lo que llega de otro banco en `POST /interbancario/creditos` se trunca
+  en vez de rechazarse, porque el contrato no define ningún límite ahí y
+  rechazar sería imponerle a los otros 3 grupos una regla que no está
+  escrita en ningún lado.
+- **Seguridad**: `POST /transferencias/internas`,
+  `POST /transferencias/interbancarias`, su endpoint de reconciliación
+  manual, y todas las rutas de banca personal de arriba exigen sesión
+  (`RequireSesion`) y verifican que la cuenta sobre la que se opera sea
+  la del usuario logueado (`esDuenoDeCuenta`), devolviendo `404` genérico
+  si no — nunca un `403` que delate que la cuenta existe pero es de otro.
+  Esto no es parte del contrato del BCP (ahí no hay usuarios humanos,
+  solo bancos autenticándose entre sí con firma), pero hace falta en
+  cuanto estas rutas quedan expuestas a la app de un usuario final.
+
 ### Pendiente / fuera de este backend
 
 - `frontend/` y `cajero/` (la interfaz del cajero) están vacíos
   todavía — lo hecho hasta ahora es solo este backend.
-- No hay tests automatizados (`go test`); las pruebas son manuales, con
-  los scripts de `scripts/` firmando requests a mano con `curl` +
-  `openssl`.
+- Sí hay tests automatizados (`go test ./...`, en `internal/handlers/`):
+  cubren transferencias internas e interbancarias (incluida la
+  verificación de dueño y el campo `concepto`), cajero, firma Ed25519,
+  bancos, cuentas, movimientos (incluido un test de regresión del bug
+  "ingreso fantasma"), y todo el flujo de usuarios (registro, login,
+  logout, perfil, password, cuentas propias, alias). Los scripts de
+  `scripts/` (`curl` + `openssl` firmando a mano) siguen sirviendo para
+  probar contra un servidor real levantado, no reemplazan al test suite.
+- `ForzarReconciliacion` (el endpoint manual de reconciliación) tiene
+  cubierto el chequeo de sesión/dueño, pero no su caso feliz (forzar una
+  reconciliación real en vez de esperar al job) — quedó sin simular
+  todavía.
 - Los 20 casos del plan de pruebas (documento 04) todavía no se
   ejecutaron de punta a punta contra los bancos de los otros 3 grupos —
   solo contra el segundo backend de prueba local (`backend-bco-test`).

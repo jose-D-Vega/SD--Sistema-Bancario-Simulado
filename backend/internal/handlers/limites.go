@@ -14,6 +14,29 @@ type getter interface {
 	Get(dest interface{}, query string, args ...interface{}) error
 }
 
+// esDuenoDeCuenta verifica que numeroCuenta, en este banco, le pertenezca
+// al usuario logueado (usuarioID). La usa toda operación de banca personal
+// donde el usuario actúa sobre "su" cuenta: transferencias (como origen),
+// movimientos, cambio de alias. No reemplaza al contrato del BCP (ahí no
+// hay usuario humano, solo bancos autenticándose entre sí con firma).
+func esDuenoDeCuenta(q getter, bancoID, numeroCuenta, usuarioID string) (bool, error) {
+	// Sin usuarioID no hay sesión que verificar: nunca es dueño. Cortamos
+	// acá antes de ir a la base porque usuario_id es UUID en la tabla, y
+	// compararlo contra "" haría fallar el cast en vez de simplemente dar
+	// "no coincide" -- con RequireSesion de por medio esto no debería
+	// pasar nunca en producción, pero lo dejamos a prueba de fallos.
+	if usuarioID == "" {
+		return false, nil
+	}
+	var esDueno bool
+	err := q.Get(&esDueno, `
+		SELECT EXISTS(
+			SELECT 1 FROM cuentas WHERE banco_id = $1 AND numero_cuenta = $2 AND usuario_id = $3
+		)
+	`, bancoID, numeroCuenta, usuarioID)
+	return esDueno, err
+}
+
 // totalSalidoHoy suma transferencias salientes (internas + interbancarias)
 // y retiros de cajero ya COMPLETADOS de una cuenta, desde las 00:00 hora
 // de Paraguay (doc 01, sección 4). Para transferencias, la cuenta es

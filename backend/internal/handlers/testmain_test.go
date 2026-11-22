@@ -107,6 +107,116 @@ func uuidDePrueba(t *testing.T) string {
 	return uuid.New().String()
 }
 
+// operacionDePrueba son los campos que hace falta fijar para armar un
+// escenario de ListarMovimientos que no sale naturalmente de llamar a los
+// handlers de transferencias -- en particular, una operación en un estado
+// puntual (p.ej. un crédito entrante RECHAZADA) para probar que el filtro
+// contra el "ingreso fantasma" sigue andando. Estado por defecto COMPLETADA.
+type operacionDePrueba struct {
+	Tipo                string
+	BancoOrigen         string
+	NumeroCuentaOrigen  string
+	BancoDestino        string
+	NumeroCuentaDestino string
+	Importe             int64
+	Estado              string
+}
+
+// crearOperacionDirecta inserta la fila por SQL directo contra la base de
+// test principal (no sirve para simular algo que ocurrió del lado de un
+// banco destino físicamente separado -- para eso ver mundoInterbancario).
+func crearOperacionDirecta(t *testing.T, o operacionDePrueba) models.Operacion {
+	t.Helper()
+	db := requireTestDB(t)
+
+	estado := o.Estado
+	if estado == "" {
+		estado = models.OperacionCompletada
+	}
+
+	var creada models.Operacion
+	err := db.Get(&creada, `
+		INSERT INTO operaciones (
+			tipo, idempotency_key, banco_origen, numero_cuenta_origen,
+			banco_destino, numero_cuenta_destino, importe, estado
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING *
+	`, o.Tipo, uuidDePrueba(t), o.BancoOrigen, o.NumeroCuentaOrigen,
+		o.BancoDestino, o.NumeroCuentaDestino, o.Importe, estado)
+	if err != nil {
+		t.Fatalf("creando operación de prueba: %v", err)
+	}
+	return creada
+}
+
+// passwordDePrueba es la contraseña en texto plano que usan los usuarios
+// de prueba -- en la base solo vive hasheada, así que los tests que
+// necesitan loguearse de verdad (ver usuarios_test.go) la necesitan aparte.
+const passwordDePrueba = "clave-de-prueba"
+
+// usuarioDePrueba junta lo que hace falta para operar como el usuario
+// recién creado: su id (para asociarle cuentas, como ya hacía
+// crearUsuarioDePrueba) y, además, su username y contraseña en texto
+// plano para poder ejercitar LoginUsuario de punta a punta.
+type usuarioDePrueba struct {
+	ID       string
+	Username string
+	Password string
+}
+
+func crearUsuarioConCredenciales(t *testing.T) usuarioDePrueba {
+	t.Helper()
+	db := requireTestDB(t)
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(passwordDePrueba), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("hasheando password de prueba: %v", err)
+	}
+
+	username := "usuario-" + idAleatorio(t)
+	var id string
+	err = db.Get(&id, `
+		INSERT INTO usuarios (username, documento, nombre, password_hash)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id
+	`, username, idAleatorio(t), "Usuario de prueba", string(hash))
+	if err != nil {
+		t.Fatalf("creando usuario de prueba: %v", err)
+	}
+	return usuarioDePrueba{ID: id, Username: username, Password: passwordDePrueba}
+}
+
+// crearUsuarioDePrueba inserta un usuario de banca personal por SQL
+// directo y devuelve su id (como string, que es como viaja en el
+// contexto de gin: ver RequireSesion). Lo usan los tests de transferencias
+// para armar una cuenta "ORIGEN" que de verdad le pertenezca a alguien,
+// ya que TransferenciaInterna/TransferenciaInterbancaria ahora exigen
+// sesión y verifican dueño. Para tests que necesitan loguearse de
+// verdad (usuarios_test.go), ver crearUsuarioConCredenciales.
+func crearUsuarioDePrueba(t *testing.T) string {
+	t.Helper()
+	return crearUsuarioConCredenciales(t).ID
+}
+
+// crearCuentaDeUsuarioDirecta es como crearCuentaDirecta, pero además
+// asocia la cuenta a usuarioID (columna usuario_id). Se usa para la
+// cuenta ORIGEN en los tests de transferencias: el handler ahora
+// comprueba que quien pide la transferencia (el usuario de la sesión) sea
+// el dueño de esa cuenta.
+func crearCuentaDeUsuarioDirecta(t *testing.T, bancoID, numeroCuenta string, saldo int64, pin, usuarioID string) models.Cuenta {
+	t.Helper()
+	cuenta := crearCuentaDirecta(t, bancoID, numeroCuenta, saldo, pin)
+
+	db := requireTestDB(t)
+	if _, err := db.Exec(`UPDATE cuentas SET usuario_id = $1 WHERE id = $2`, usuarioID, cuenta.ID); err != nil {
+		t.Fatalf("asociando cuenta de prueba a usuario: %v", err)
+	}
+	parsedID := uuid.MustParse(usuarioID)
+	cuenta.UsuarioID = &parsedID
+	return cuenta
+}
+
 // crearCuentaDirecta inserta una cuenta por SQL directo (sin pasar por el
 // handler CrearCuenta), para que los tests de otros handlers no dependan
 // de que ESE handler en particular funcione bien. pin puede ser "" para
@@ -193,11 +303,28 @@ func ejecutarJSON(t *testing.T, handler gin.HandlerFunc, method, path string, bo
 	}
 
 	handler(c)
+	// Sin esto, un handler que solo hace c.Status(204) sin escribir body
+	// (LogoutUsuario, CambiarMiPassword) queda con w.Code en 200: gin solo
+	// escribe el status real a un ResponseWriter la primera vez que algo
+	// escribe el body (ver responseWriter.WriteHeaderNow en el propio gin),
+	// y ese flush normalmente lo dispara el motor de gin al final de
+	// engine.ServeHTTP -- acá no pasamos por ahí, llamamos al handler
+	// directo, así que lo disparamos nosotros. Es un no-op si ya se
+	// escribió un body (c.JSON ya lo dispara solo).
+	c.Writer.WriteHeaderNow()
 
 	var parsed map[string]any
 	if w.Body.Len() > 0 {
 		if err := json.Unmarshal(w.Body.Bytes(), &parsed); err != nil {
-			t.Fatalf("la respuesta no es JSON válido: %v\nbody: %s", err, w.Body.String())
+			// La respuesta puede ser JSON válido pero no un objeto en el
+			// nivel superior (p.ej. ListarMisCuentas devuelve un array
+			// directo). Solo es un error de verdad si ni siquiera es JSON
+			// válido; si el caller necesita el array, que decodifique con
+			// decodificarJSON[T] sobre el *ResponseRecorder directamente.
+			var cualquiera any
+			if err2 := json.Unmarshal(w.Body.Bytes(), &cualquiera); err2 != nil {
+				t.Fatalf("la respuesta no es JSON válido: %v\nbody: %s", err, w.Body.String())
+			}
 		}
 	}
 	return w, parsed
@@ -322,7 +449,7 @@ func aplicarMigraciones(db *sqlx.DB) error {
 		if err != nil {
 			return fmt.Errorf("leyendo %s: %w", f, err)
 		}
-		for _, stmt := range strings.Split(string(contenido), ";") {
+		for _, stmt := range strings.Split(quitarComentariosSQL(string(contenido)), ";") {
 			stmt = strings.TrimSpace(stmt)
 			if stmt == "" {
 				continue
@@ -336,4 +463,22 @@ func aplicarMigraciones(db *sqlx.DB) error {
 		}
 	}
 	return nil
+}
+
+// quitarComentariosSQL borra todo lo que va de "--" al fin de línea, para
+// que aplicarMigraciones pueda partir el archivo por ";" sin que un ";"
+// adentro de un comentario (como en 0006_ampliar_cuentas_banca_personal,
+// "...numero_cuenta; esto es...") corte la sentencia en un lugar
+// equivocado y deje el resto del comentario como si fuera SQL de verdad.
+// Asume que ninguna migración tiene un "--" adentro de un string literal
+// (hoy no lo hay; si llegara a hacer falta, esto necesitaría ser
+// consciente de comillas).
+func quitarComentariosSQL(sql string) string {
+	lineas := strings.Split(sql, "\n")
+	for i, linea := range lineas {
+		if idx := strings.Index(linea, "--"); idx != -1 {
+			lineas[i] = linea[:idx]
+		}
+	}
+	return strings.Join(lineas, "\n")
 }

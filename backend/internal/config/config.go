@@ -24,6 +24,11 @@ type Config struct {
 	// PENDIENTE. 30s por defecto para que sea fácil de probar; en un
 	// entorno real conviene algo más espaciado (1-5 min).
 	ReconciliacionIntervalo time.Duration
+
+	// Cuánto dura una sesión de usuario (login del frontend) antes de
+	// expirar. Esto es parte de la capa de banca personal, separada del
+	// contrato de interoperabilidad entre bancos.
+	SesionDuracion time.Duration
 }
 
 func Load() Config {
@@ -35,6 +40,7 @@ func Load() Config {
 		RegistroBancosPath:      getEnv("REGISTRO_BANCOS_PATH", ""),
 		BancoURLs:               map[string]string{},
 		ReconciliacionIntervalo: time.Duration(getEnvInt("RECONCILIACION_INTERVALO_SEGUNDOS", 30)) * time.Second,
+		SesionDuracion:          time.Duration(getEnvInt("SESION_DURACION_HORAS", 24)) * time.Hour,
 	}
 }
 

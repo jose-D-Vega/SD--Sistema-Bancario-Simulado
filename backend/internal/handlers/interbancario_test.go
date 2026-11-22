@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -109,7 +110,8 @@ func TestTransferenciaInterbancaria_Exitosa(t *testing.T) {
 	m := armarMundoInterbancario(t, db)
 	handler := TransferenciaInterbancaria(db, m.bancoOrigenID, m.clienteOrigen, m.registroOrigen)
 
-	crearCuentaDirecta(t, m.bancoOrigenID, "ORIGEN", 1_000_000, "")
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, m.bancoOrigenID, "ORIGEN", 1_000_000, "", usuarioID)
 	m.crearCuentaEnDestino(t, "DESTINO", 0, "")
 
 	req := transferenciaInterbancariaRequest{
@@ -120,7 +122,7 @@ func TestTransferenciaInterbancaria_Exitosa(t *testing.T) {
 		IdempotencyKey:      uuidDePrueba(t),
 	}
 
-	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", req, nil, nil)
+	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", req, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w, http.StatusCreated)
 
 	op := decodificarOperacion(t, w)
@@ -143,7 +145,8 @@ func TestTransferenciaInterbancaria_CuentaDestinoNoExiste(t *testing.T) {
 	m := armarMundoInterbancario(t, db)
 	handler := TransferenciaInterbancaria(db, m.bancoOrigenID, m.clienteOrigen, m.registroOrigen)
 
-	crearCuentaDirecta(t, m.bancoOrigenID, "ORIGEN", 1_000_000, "")
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, m.bancoOrigenID, "ORIGEN", 1_000_000, "", usuarioID)
 	// "DESTINO" nunca se crea en el banco destino.
 
 	req := transferenciaInterbancariaRequest{
@@ -154,7 +157,7 @@ func TestTransferenciaInterbancaria_CuentaDestinoNoExiste(t *testing.T) {
 		IdempotencyKey:      uuidDePrueba(t),
 	}
 
-	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", req, nil, nil)
+	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", req, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w, http.StatusUnprocessableEntity)
 
 	op := decodificarOperacion(t, w)
@@ -176,7 +179,8 @@ func TestTransferenciaInterbancaria_FondosInsuficientesEnOrigen(t *testing.T) {
 	m := armarMundoInterbancario(t, db)
 	handler := TransferenciaInterbancaria(db, m.bancoOrigenID, m.clienteOrigen, m.registroOrigen)
 
-	crearCuentaDirecta(t, m.bancoOrigenID, "ORIGEN", 1_000, "")
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, m.bancoOrigenID, "ORIGEN", 1_000, "", usuarioID)
 	m.crearCuentaEnDestino(t, "DESTINO", 0, "")
 
 	req := transferenciaInterbancariaRequest{
@@ -187,7 +191,7 @@ func TestTransferenciaInterbancaria_FondosInsuficientesEnOrigen(t *testing.T) {
 		IdempotencyKey:      uuidDePrueba(t),
 	}
 
-	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", req, nil, nil)
+	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", req, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w, http.StatusUnprocessableEntity)
 
 	op := decodificarOperacion(t, w)
@@ -210,7 +214,8 @@ func TestTransferenciaInterbancaria_LimiteDiarioCombinado(t *testing.T) {
 	m := armarMundoInterbancario(t, db)
 	handler := TransferenciaInterbancaria(db, m.bancoOrigenID, m.clienteOrigen, m.registroOrigen)
 
-	crearCuentaDirecta(t, m.bancoOrigenID, "ORIGEN", 20_000_000, "")
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, m.bancoOrigenID, "ORIGEN", 20_000_000, "", usuarioID)
 	m.crearCuentaEnDestino(t, "DESTINO", 0, "")
 
 	primera := transferenciaInterbancariaRequest{
@@ -220,7 +225,7 @@ func TestTransferenciaInterbancaria_LimiteDiarioCombinado(t *testing.T) {
 		Importe:             9_500_000,
 		IdempotencyKey:      uuidDePrueba(t),
 	}
-	w1, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", primera, nil, nil)
+	w1, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", primera, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w1, http.StatusCreated)
 
 	if llamadas := m.LlamadasADestino(); llamadas != 1 {
@@ -234,7 +239,7 @@ func TestTransferenciaInterbancaria_LimiteDiarioCombinado(t *testing.T) {
 		Importe:             1_000_000,
 		IdempotencyKey:      uuidDePrueba(t),
 	}
-	w2, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", segunda, nil, nil)
+	w2, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", segunda, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w2, http.StatusUnprocessableEntity)
 
 	op2 := decodificarOperacion(t, w2)
@@ -257,7 +262,8 @@ func TestTransferenciaInterbancaria_ReintentoMismaClaveMismosDatos(t *testing.T)
 	m := armarMundoInterbancario(t, db)
 	handler := TransferenciaInterbancaria(db, m.bancoOrigenID, m.clienteOrigen, m.registroOrigen)
 
-	crearCuentaDirecta(t, m.bancoOrigenID, "ORIGEN", 1_000_000, "")
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, m.bancoOrigenID, "ORIGEN", 1_000_000, "", usuarioID)
 	m.crearCuentaEnDestino(t, "DESTINO", 0, "")
 
 	req := transferenciaInterbancariaRequest{
@@ -268,11 +274,11 @@ func TestTransferenciaInterbancaria_ReintentoMismaClaveMismosDatos(t *testing.T)
 		IdempotencyKey:      uuidDePrueba(t),
 	}
 
-	w1, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", req, nil, nil)
+	w1, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", req, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w1, http.StatusCreated)
 	op1 := decodificarOperacion(t, w1)
 
-	w2, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", req, nil, nil)
+	w2, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", req, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w2, http.StatusCreated)
 	op2 := decodificarOperacion(t, w2)
 
@@ -417,7 +423,8 @@ func TestTransferenciaInterbancaria_TimeoutConsultaAntesDeDecidir_EndToEndLento(
 	}
 
 	handler := TransferenciaInterbancaria(dbOrigen, bancoOrigenID, clienteOrigen, registroOrigen)
-	crearCuentaDirecta(t, bancoOrigenID, "ORIGEN", 1_000_000, "")
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, bancoOrigenID, "ORIGEN", 1_000_000, "", usuarioID)
 	crearCuentaDirectaEn(t, dbDestino, bancoDestinoID, "DESTINO", 0, "")
 
 	req := transferenciaInterbancariaRequest{
@@ -429,7 +436,7 @@ func TestTransferenciaInterbancaria_TimeoutConsultaAntesDeDecidir_EndToEndLento(
 	}
 
 	inicio := time.Now()
-	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", req, nil, nil)
+	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", req, nil, map[string]string{"usuarioID": usuarioID})
 	t.Logf("la solicitud tardó %s (se espera un poco más de %s, por el timeout de la llamada inicial)", time.Since(inicio), timeoutLlamadaBanco)
 
 	esperarStatus(t, w, http.StatusCreated)
@@ -476,7 +483,8 @@ func TestTransferenciaInterbancaria_ConflictoIdempotencia(t *testing.T) {
 	m := armarMundoInterbancario(t, db)
 	handler := TransferenciaInterbancaria(db, m.bancoOrigenID, m.clienteOrigen, m.registroOrigen)
 
-	crearCuentaDirecta(t, m.bancoOrigenID, "ORIGEN", 2_000_000, "")
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, m.bancoOrigenID, "ORIGEN", 2_000_000, "", usuarioID)
 	m.crearCuentaEnDestino(t, "DESTINO", 0, "")
 
 	idempotencyKey := uuidDePrueba(t)
@@ -488,13 +496,13 @@ func TestTransferenciaInterbancaria_ConflictoIdempotencia(t *testing.T) {
 		Importe:             100_000,
 		IdempotencyKey:      idempotencyKey,
 	}
-	w1, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", primera, nil, nil)
+	w1, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", primera, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w1, http.StatusCreated)
 
 	segunda := primera
 	segunda.Importe = 1_999_999 // mismo idempotency_key, importe bien distinto
 
-	w2, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", segunda, nil, nil)
+	w2, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", segunda, nil, map[string]string{"usuarioID": usuarioID})
 	esperarErrorContrato(t, w2, http.StatusConflict, ErrConflictoIdempotencia)
 
 	if saldo := saldoActual(t, m.bancoOrigenID, "ORIGEN"); saldo != 1_900_000 {
@@ -503,4 +511,168 @@ func TestTransferenciaInterbancaria_ConflictoIdempotencia(t *testing.T) {
 	if llamadas := m.LlamadasADestino(); llamadas != 1 {
 		t.Fatalf("el conflicto de idempotencia se detecta localmente, no debería volver a llamar al destino; hubo %d llamadas", llamadas)
 	}
+}
+
+// Nuevo (concepto, doc 02): tiene que viajar hasta el banco destino y
+// quedar guardado en SU base (físicamente separada de la nuestra, ver
+// armarMundoInterbancario) -- no alcanza con que quede en nuestra propia
+// operación local.
+func TestTransferenciaInterbancaria_GuardaConceptoYLoReenviaAlDestino(t *testing.T) {
+	db := requireTestDB(t)
+	m := armarMundoInterbancario(t, db)
+	handler := TransferenciaInterbancaria(db, m.bancoOrigenID, m.clienteOrigen, m.registroOrigen)
+
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, m.bancoOrigenID, "ORIGEN", 1_000_000, "", usuarioID)
+	m.crearCuentaEnDestino(t, "DESTINO", 0, "")
+
+	idempotencyKey := uuidDePrueba(t)
+	req := transferenciaInterbancariaRequest{
+		NumeroCuentaOrigen:  "ORIGEN",
+		BancoDestino:        m.bancoDestinoID,
+		NumeroCuentaDestino: "DESTINO",
+		Importe:             100_000,
+		IdempotencyKey:      idempotencyKey,
+		Concepto:            "Pago de factura UNCA-884",
+	}
+
+	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", req, nil, map[string]string{"usuarioID": usuarioID})
+	esperarStatus(t, w, http.StatusCreated)
+
+	op := decodificarOperacion(t, w)
+	if op.Concepto == nil || *op.Concepto != "Pago de factura UNCA-884" {
+		t.Fatalf("en el lado origen esperaba concepto %q, dio %v", "Pago de factura UNCA-884", op.Concepto)
+	}
+
+	var opDestino models.Operacion
+	if err := m.dbDestino.Get(&opDestino, `
+		SELECT * FROM operaciones WHERE banco_origen = $1 AND idempotency_key = $2
+	`, m.bancoOrigenID, idempotencyKey); err != nil {
+		t.Fatalf("no encontré la operación en la base del destino: %v", err)
+	}
+	if opDestino.Concepto == nil || *opDestino.Concepto != "Pago de factura UNCA-884" {
+		t.Fatalf("en el lado destino esperaba concepto %q, dio %v", "Pago de factura UNCA-884", opDestino.Concepto)
+	}
+}
+
+// RecibirCredito trunca en vez de rechazar un concepto demasiado largo
+// que llega de otro banco -- ver el comentario en interbancario.go sobre
+// por qué no tratamos esto como un error de contrato.
+func TestTransferenciaInterbancaria_ConceptoLargoDelDestinoSeTrunca(t *testing.T) {
+	db := requireTestDB(t)
+	m := armarMundoInterbancario(t, db)
+	handler := TransferenciaInterbancaria(db, m.bancoOrigenID, m.clienteOrigen, m.registroOrigen)
+
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, m.bancoOrigenID, "ORIGEN", 1_000_000, "", usuarioID)
+	m.crearCuentaEnDestino(t, "DESTINO", 0, "")
+
+	// Nuestro propio lado SÍ valida el límite (ver el test de arriba para
+	// transferencias internas), así que para simular "otro banco mandando
+	// algo más laxo" probamos el límite justo en el borde permitido de
+	// nuestro lado, y confirmamos que llega entero sin truncarse: el
+	// truncado es solo para cuando algo se pasa, cosa que nuestro propio
+	// cliente nunca permite mandar.
+	conceptoAlLimite := strings.Repeat("a", limiteConceptoChars)
+
+	idempotencyKey := uuidDePrueba(t)
+	req := transferenciaInterbancariaRequest{
+		NumeroCuentaOrigen:  "ORIGEN",
+		BancoDestino:        m.bancoDestinoID,
+		NumeroCuentaDestino: "DESTINO",
+		Importe:             100_000,
+		IdempotencyKey:      idempotencyKey,
+		Concepto:            conceptoAlLimite,
+	}
+
+	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", req, nil, map[string]string{"usuarioID": usuarioID})
+	esperarStatus(t, w, http.StatusCreated)
+
+	var opDestino models.Operacion
+	if err := m.dbDestino.Get(&opDestino, `
+		SELECT * FROM operaciones WHERE banco_origen = $1 AND idempotency_key = $2
+	`, m.bancoOrigenID, idempotencyKey); err != nil {
+		t.Fatalf("no encontré la operación en la base del destino: %v", err)
+	}
+	if opDestino.Concepto == nil || *opDestino.Concepto != conceptoAlLimite {
+		t.Fatalf("esperaba que el concepto de %d caracteres llegara entero, dio %v", limiteConceptoChars, opDestino.Concepto)
+	}
+}
+
+// Nuestro propio lado (el que origina la transferencia) rechaza un
+// concepto demasiado largo antes de reservar nada -- simétrico al test
+// de transferencias internas.
+func TestTransferenciaInterbancaria_RechazaConceptoDemasiadoLargo(t *testing.T) {
+	db := requireTestDB(t)
+	m := armarMundoInterbancario(t, db)
+	handler := TransferenciaInterbancaria(db, m.bancoOrigenID, m.clienteOrigen, m.registroOrigen)
+
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, m.bancoOrigenID, "ORIGEN", 1_000_000, "", usuarioID)
+	m.crearCuentaEnDestino(t, "DESTINO", 0, "")
+
+	req := transferenciaInterbancariaRequest{
+		NumeroCuentaOrigen:  "ORIGEN",
+		BancoDestino:        m.bancoDestinoID,
+		NumeroCuentaDestino: "DESTINO",
+		Importe:             100_000,
+		IdempotencyKey:      uuidDePrueba(t),
+		Concepto:            strings.Repeat("x", limiteConceptoChars+1),
+	}
+
+	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/interbancarias", req, nil, map[string]string{"usuarioID": usuarioID})
+	esperarStatus(t, w, http.StatusBadRequest)
+
+	if saldo := saldoActual(t, m.bancoOrigenID, "ORIGEN"); saldo != 1_000_000 {
+		t.Fatalf("un concepto inválido no debería tocar el saldo, quedó en %d", saldo)
+	}
+	if m.LlamadasADestino() != 0 {
+		t.Fatalf("no debería haber llamado al destino, lo llamó %d veces", m.LlamadasADestino())
+	}
+}
+
+// Nuevo (seguridad): igual que TransferenciaInterbancaria, este endpoint
+// ahora exige sesión y verifica que la cuenta de origen de la operación
+// sea del usuario logueado. Antes, el idempotency_key del path alcanzaba
+// -- y no es un secreto -- para ver el detalle completo de una
+// transferencia ajena (importe, cuentas, concepto) y forzar cuándo se
+// resuelve. No hace falta armar todo mundoInterbancario para este test:
+// el handler rechaza antes de necesitar cliente/registro para nada.
+func TestForzarReconciliacion_RechazaSiNoEsDuenoDeLaCuentaOrigen(t *testing.T) {
+	db := requireTestDB(t)
+	bancoID := bancoIDDePrueba(t)
+	handler := ForzarReconciliacion(db, bancoID, nil, nil)
+
+	dueño := crearUsuarioDePrueba(t)
+	otro := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, bancoID, "ORIGEN", 1_000_000, "", dueño)
+
+	op := crearOperacionDirecta(t, operacionDePrueba{
+		Tipo: models.TipoTransferenciaInterbancaria, BancoOrigen: bancoID, NumeroCuentaOrigen: "ORIGEN",
+		BancoDestino: "OTRO-BANCO", NumeroCuentaDestino: "EXTERNA", Importe: 100_000, Estado: models.OperacionPendiente,
+	})
+
+	params := gin.Params{{Key: "idempotency_key", Value: op.IdempotencyKey}}
+	w, _ := ejecutarJSON(t, handler, http.MethodPost,
+		"/transferencias/interbancarias/"+op.IdempotencyKey+"/reconciliar", nil, params, map[string]string{"usuarioID": otro})
+	esperarStatus(t, w, http.StatusNotFound)
+}
+
+func TestForzarReconciliacion_RechazaSinSesion(t *testing.T) {
+	db := requireTestDB(t)
+	bancoID := bancoIDDePrueba(t)
+	handler := ForzarReconciliacion(db, bancoID, nil, nil)
+
+	dueño := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, bancoID, "ORIGEN", 1_000_000, "", dueño)
+
+	op := crearOperacionDirecta(t, operacionDePrueba{
+		Tipo: models.TipoTransferenciaInterbancaria, BancoOrigen: bancoID, NumeroCuentaOrigen: "ORIGEN",
+		BancoDestino: "OTRO-BANCO", NumeroCuentaDestino: "EXTERNA", Importe: 100_000, Estado: models.OperacionPendiente,
+	})
+
+	params := gin.Params{{Key: "idempotency_key", Value: op.IdempotencyKey}}
+	w, _ := ejecutarJSON(t, handler, http.MethodPost,
+		"/transferencias/interbancarias/"+op.IdempotencyKey+"/reconciliar", nil, params, nil)
+	esperarStatus(t, w, http.StatusNotFound)
 }

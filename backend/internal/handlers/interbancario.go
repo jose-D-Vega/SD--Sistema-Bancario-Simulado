@@ -59,6 +59,13 @@ func RecibirCredito(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 			responderErrorContrato(c, ErrSolicitudInvalida, "importe debe ser mayor a 0")
 			return
 		}
+		// A diferencia de nuestras propias rutas salientes (transferencias.go,
+		// transferencias_interbancarias.go), acá no rechazamos por un
+		// concepto largo: el doc 02 no define un límite para este campo, y
+		// esta es plata real que OTRO banco ya está mandando -- truncamos
+		// en vez de arriesgarnos a rechazar un crédito legítimo por un
+		// detalle cosmético que el contrato ni siquiera limita.
+		concepto := conceptoOrNil(truncarConcepto(req.Concepto))
 
 		var existente models.Operacion
 		err := dbConn.Get(&existente, `
@@ -104,10 +111,10 @@ func RecibirCredito(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 		if codigoRechazo != "" {
 			if _, insErr := tx.Exec(`
 				INSERT INTO operaciones (tipo, idempotency_key, banco_origen, numero_cuenta_origen,
-					banco_destino, numero_cuenta_destino, importe, estado, motivo_rechazo)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+					banco_destino, numero_cuenta_destino, importe, estado, motivo_rechazo, concepto)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			`, models.TipoTransferenciaInterbancaria, req.TransferID, bankID, req.CuentaOrigen,
-				bancoID, req.CuentaDestino, req.Importe, models.OperacionRechazada, codigoRechazo); insErr != nil {
+				bancoID, req.CuentaDestino, req.Importe, models.OperacionRechazada, codigoRechazo, concepto); insErr != nil {
 				responderErrorContrato(c, ErrInterno, "error registrando operación")
 				return
 			}
@@ -125,10 +132,10 @@ func RecibirCredito(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 		}
 		if _, err := tx.Exec(`
 			INSERT INTO operaciones (tipo, idempotency_key, banco_origen, numero_cuenta_origen,
-				banco_destino, numero_cuenta_destino, importe, estado)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+				banco_destino, numero_cuenta_destino, importe, estado, concepto)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		`, models.TipoTransferenciaInterbancaria, req.TransferID, bankID, req.CuentaOrigen,
-			bancoID, req.CuentaDestino, req.Importe, models.OperacionCompletada); err != nil {
+			bancoID, req.CuentaDestino, req.Importe, models.OperacionCompletada, concepto); err != nil {
 			responderErrorContrato(c, ErrInterno, "error registrando operación")
 			return
 		}

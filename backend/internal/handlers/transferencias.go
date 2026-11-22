@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,9 @@ type transferenciaInternaRequest struct {
 	NumeroCuentaDestino string `json:"numero_cuenta_destino" binding:"required"`
 	Importe             int64  `json:"importe" binding:"required"`
 	IdempotencyKey      string `json:"idempotency_key" binding:"required"`
+	// Concepto es opcional (doc 02): texto libre que el usuario puede
+	// adjuntar a su transferencia. Ver internal/handlers/concepto.go.
+	Concepto string `json:"concepto"`
 }
 
 func TransferenciaInterna(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
@@ -34,13 +38,34 @@ func TransferenciaInterna(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "la cuenta origen y destino no pueden ser la misma"})
 			return
 		}
+		if conceptoDemasiadoLargo(req.Concepto) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("concepto no puede superar los %d caracteres", limiteConceptoChars)})
+			return
+		}
+
+		// Esta ruta la usa el propio usuario logueado de banca personal
+		// (RequireSesion ya corrió antes), no otro banco -- el contrato del
+		// BCP no conoce usuarios humanos. Por eso acá sí hace falta
+		// verificar que numero_cuenta_origen sea realmente "su" cuenta: sin
+		// este chequeo, cualquiera que conociera el número de una cuenta
+		// ajena podría vaciarla sin haber iniciado sesión.
+		usuarioID := c.GetString("usuarioID")
+		esDueno, err := esDuenoDeCuenta(dbConn, bancoID, req.NumeroCuentaOrigen, usuarioID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "error verificando la cuenta"})
+			return
+		}
+		if !esDueno {
+			c.JSON(http.StatusNotFound, gin.H{"error": "la cuenta no existe o no te pertenece"})
+			return
+		}
 
 		// Fast path: si ya procesamos esta idempotency_key antes, devolvemos
 		// el resultado guardado en vez de reprocesar — pero solo si la
 		// solicitud es igual a la primera vez (doc 02, sección 3). Si alguno
 		// de los datos cambió, es un conflicto de idempotencia, no un reintento.
 		var existente models.Operacion
-		err := dbConn.Get(&existente, `
+		err = dbConn.Get(&existente, `
 			SELECT * FROM operaciones
 			WHERE banco_origen = $1 AND idempotency_key = $2 AND tipo = $3
 		`, bancoID, req.IdempotencyKey, models.TipoTransferenciaInterna)
@@ -158,12 +183,12 @@ func registrarOperacion(tx *sqlx.Tx, bancoID string, req transferenciaInternaReq
 	err := tx.Get(&op, `
 		INSERT INTO operaciones (
 			tipo, idempotency_key, banco_origen, numero_cuenta_origen,
-			banco_destino, numero_cuenta_destino, importe, estado, motivo_rechazo
+			banco_destino, numero_cuenta_destino, importe, estado, motivo_rechazo, concepto
 		)
-		VALUES ($1, $2, $3, $4, $3, $5, $6, $7, $8)
+		VALUES ($1, $2, $3, $4, $3, $5, $6, $7, $8, $9)
 		RETURNING *
 	`, models.TipoTransferenciaInterna, req.IdempotencyKey, bancoID, req.NumeroCuentaOrigen,
-		req.NumeroCuentaDestino, req.Importe, estado, motivoRechazo)
+		req.NumeroCuentaDestino, req.Importe, estado, motivoRechazo, conceptoOrNil(req.Concepto))
 	return op, err
 }
 

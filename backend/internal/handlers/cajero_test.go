@@ -133,7 +133,8 @@ func TestAutorizarRetiroCajero_ExcedeLimiteDiarioCombinado(t *testing.T) {
 	cajeroHandler := AutorizarRetiroCajero(db, bancoID)
 	transferenciaHandler := TransferenciaInterna(db, bancoID)
 
-	crearCuentaDirecta(t, bancoID, "CTA1", 20_000_000, "1234")
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, bancoID, "CTA1", 20_000_000, "1234", usuarioID)
 	crearCuentaDirecta(t, bancoID, "CTA2", 0, "")
 
 	// Transferencia interna previa: consume 9.500.000 del límite diario
@@ -144,7 +145,7 @@ func TestAutorizarRetiroCajero_ExcedeLimiteDiarioCombinado(t *testing.T) {
 		Importe:             9_500_000,
 		IdempotencyKey:      uuidDePrueba(t),
 	}
-	wt, _ := ejecutarJSON(t, transferenciaHandler, http.MethodPost, "/transferencias/internas", transferencia, nil, nil)
+	wt, _ := ejecutarJSON(t, transferenciaHandler, http.MethodPost, "/transferencias/internas", transferencia, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, wt, http.StatusCreated)
 
 	// El retiro, aislado, está dentro del límite por operación (1.000.000

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -22,6 +23,9 @@ type transferenciaInterbancariaRequest struct {
 	NumeroCuentaDestino string `json:"numero_cuenta_destino" binding:"required"`
 	Importe             int64  `json:"importe" binding:"required"`
 	IdempotencyKey      string `json:"idempotency_key" binding:"required"`
+	// Concepto es opcional (doc 02): texto libre que viaja junto con el
+	// crédito al banco destino. Ver internal/handlers/concepto.go.
+	Concepto string `json:"concepto"`
 }
 
 const timeoutLlamadaBanco = 5 * time.Second
@@ -42,9 +46,28 @@ func TransferenciaInterbancaria(dbConn *sqlx.DB, bancoID string, cliente *interb
 			c.JSON(http.StatusBadRequest, gin.H{"error": "banco_destino desconocido: " + req.BancoDestino})
 			return
 		}
+		if conceptoDemasiadoLargo(req.Concepto) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("concepto no puede superar los %d caracteres", limiteConceptoChars)})
+			return
+		}
+
+		// Igual que en TransferenciaInterna: esta ruta la invoca el propio
+		// usuario de banca personal desde su sesión, así que hay que
+		// confirmar que numero_cuenta_origen sea realmente suya antes de
+		// reservar y debitar nada.
+		usuarioID := c.GetString("usuarioID")
+		esDueno, err := esDuenoDeCuenta(dbConn, bancoID, req.NumeroCuentaOrigen, usuarioID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "error verificando la cuenta"})
+			return
+		}
+		if !esDueno {
+			c.JSON(http.StatusNotFound, gin.H{"error": "la cuenta no existe o no te pertenece"})
+			return
+		}
 
 		var existente models.Operacion
-		err := dbConn.Get(&existente, `
+		err = dbConn.Get(&existente, `
 			SELECT * FROM operaciones
 			WHERE banco_origen = $1 AND idempotency_key = $2 AND tipo = $3
 		`, bancoID, req.IdempotencyKey, models.TipoTransferenciaInterbancaria)
@@ -84,6 +107,7 @@ func TransferenciaInterbancaria(dbConn *sqlx.DB, bancoID string, cliente *interb
 			CuentaOrigen:  req.NumeroCuentaOrigen,
 			Importe:       req.Importe,
 			Moneda:        "PYG",
+			Concepto:      req.Concepto,
 		}
 		resp, callErr := cliente.EnviarCredito(ctx, destino.URL, payload)
 		op = resolverResultado(dbConn, op, resp, callErr, cliente, destino.URL)
@@ -145,12 +169,12 @@ func reservarYDebitar(dbConn *sqlx.DB, bancoID string, req transferenciaInterban
 	err = tx.Get(&op, `
 		INSERT INTO operaciones (
 			tipo, idempotency_key, banco_origen, numero_cuenta_origen,
-			banco_destino, numero_cuenta_destino, importe, estado, motivo_rechazo
+			banco_destino, numero_cuenta_destino, importe, estado, motivo_rechazo, concepto
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		RETURNING *
 	`, models.TipoTransferenciaInterbancaria, req.IdempotencyKey, bancoID, req.NumeroCuentaOrigen,
-		req.BancoDestino, req.NumeroCuentaDestino, req.Importe, estado, motivoPtr)
+		req.BancoDestino, req.NumeroCuentaDestino, req.Importe, estado, motivoPtr, conceptoOrNil(req.Concepto))
 	if err != nil {
 		return models.Operacion{}, err
 	}
@@ -271,6 +295,7 @@ func ReconciliarOperacion(dbConn *sqlx.DB, cliente *interbanco.Cliente, registro
 		CuentaOrigen:  op.NumeroCuentaOrigen,
 		Importe:       op.Importe,
 		Moneda:        "PYG",
+		Concepto:      derefOrVacio(op.Concepto),
 	}
 	resp, reenvioErr := cliente.EnviarCredito(ctx, destino.URL, payload)
 	if reenvioErr == nil && resp.Estado == "ACREDITADO" {
@@ -336,6 +361,28 @@ func ForzarReconciliacion(dbConn *sqlx.DB, bancoID string, cliente *interbanco.C
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "error consultando la operación"})
 			return
 		}
+
+		// Igual que en TransferenciaInterna/TransferenciaInterbancaria
+		// (punto 1): esta ruta la usa el propio usuario de banca personal
+		// desde su sesión, no otro banco, así que hay que confirmar que la
+		// cuenta de origen de ESTA operación sea la suya. El idempotency_key
+		// no es un secreto -- viaja en texto plano en el request original y
+		// en su respuesta -- así que sin este chequeo cualquiera que lo
+		// conociera podía ver el detalle completo de una transferencia
+		// ajena (importe, cuentas, concepto) y forzar cuándo se resuelve.
+		// Devolvemos el mismo 404 "no existe" que el caso de arriba, para
+		// no delatar que la operación sí existe pero es de otro usuario.
+		usuarioID := c.GetString("usuarioID")
+		esDueno, err := esDuenoDeCuenta(dbConn, bancoID, op.NumeroCuentaOrigen, usuarioID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "error verificando la cuenta"})
+			return
+		}
+		if !esDueno {
+			c.JSON(http.StatusNotFound, gin.H{"error": "no existe esa operación"})
+			return
+		}
+
 		if op.Estado != models.OperacionPendiente {
 			c.JSON(http.StatusConflict, gin.H{"error": "la operación no está en estado PENDIENTE", "estado_actual": op.Estado})
 			return

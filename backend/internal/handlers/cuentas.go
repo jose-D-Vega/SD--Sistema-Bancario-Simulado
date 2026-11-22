@@ -20,6 +20,10 @@ type crearCuentaRequest struct {
 	// Pin es opcional al crear; sin PIN la cuenta no puede operar en el
 	// cajero (doc 03). 4 dígitos, como cualquier cajero real.
 	Pin string `json:"pin" binding:"omitempty,len=4,numeric"`
+	// Tipo es opcional (banca personal, ver migración 0006); por defecto
+	// CUENTA_CORRIENTE. Este endpoint sigue sin asociar la cuenta a ningún
+	// usuario — para eso ver POST /usuarios/registro.
+	Tipo string `json:"tipo"`
 }
 
 func CrearCuenta(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
@@ -32,6 +36,15 @@ func CrearCuenta(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 
 		if req.SaldoInicial < 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "saldo_inicial no puede ser negativo"})
+			return
+		}
+
+		tipo := req.Tipo
+		if tipo == "" {
+			tipo = models.TipoCuentaCorriente
+		}
+		if tipo != models.TipoCuentaCorriente && tipo != models.TipoCajaAhorro {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "tipo inválido: usá CUENTA_CORRIENTE o CAJA_AHORRO"})
 			return
 		}
 
@@ -48,10 +61,10 @@ func CrearCuenta(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 
 		var cuenta models.Cuenta
 		err := dbConn.Get(&cuenta, `
-			INSERT INTO cuentas (banco_id, numero_cuenta, titular, saldo, pin_hash)
-			VALUES ($1, $2, $3, $4, $5)
-			RETURNING id, banco_id, numero_cuenta, titular, saldo, estado, creado_en
-		`, bancoID, req.NumeroCuenta, req.Titular, req.SaldoInicial, pinHash)
+			INSERT INTO cuentas (banco_id, numero_cuenta, titular, saldo, pin_hash, tipo)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			RETURNING id, banco_id, numero_cuenta, titular, saldo, estado, tipo, creado_en
+		`, bancoID, req.NumeroCuenta, req.Titular, req.SaldoInicial, pinHash, tipo)
 
 		if err != nil {
 			var pgErr *pgconn.PgError

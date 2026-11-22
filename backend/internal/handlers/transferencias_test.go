@@ -34,7 +34,8 @@ func TestTransferenciaInterna_Exitosa(t *testing.T) {
 	bancoID := bancoIDDePrueba(t)
 	handler := TransferenciaInterna(db, bancoID)
 
-	crearCuentaDirecta(t, bancoID, "ORIGEN", 1_000_000, "")
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, bancoID, "ORIGEN", 1_000_000, "", usuarioID)
 	crearCuentaDirecta(t, bancoID, "DESTINO", 0, "")
 
 	req := transferenciaInternaRequest{
@@ -44,7 +45,7 @@ func TestTransferenciaInterna_Exitosa(t *testing.T) {
 		IdempotencyKey:      uuidDePrueba(t),
 	}
 
-	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, nil)
+	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w, http.StatusCreated)
 
 	op := decodificarOperacion(t, w)
@@ -66,7 +67,8 @@ func TestTransferenciaInterna_FondosInsuficientes(t *testing.T) {
 	bancoID := bancoIDDePrueba(t)
 	handler := TransferenciaInterna(db, bancoID)
 
-	crearCuentaDirecta(t, bancoID, "ORIGEN", 1_000, "")
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, bancoID, "ORIGEN", 1_000, "", usuarioID)
 	crearCuentaDirecta(t, bancoID, "DESTINO", 0, "")
 
 	req := transferenciaInternaRequest{
@@ -76,7 +78,7 @@ func TestTransferenciaInterna_FondosInsuficientes(t *testing.T) {
 		IdempotencyKey:      uuidDePrueba(t),
 	}
 
-	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, nil)
+	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w, http.StatusUnprocessableEntity)
 
 	op := decodificarOperacion(t, w)
@@ -101,7 +103,8 @@ func TestTransferenciaInterna_CuentaDestinoInexistente(t *testing.T) {
 	bancoID := bancoIDDePrueba(t)
 	handler := TransferenciaInterna(db, bancoID)
 
-	crearCuentaDirecta(t, bancoID, "ORIGEN", 1_000_000, "")
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, bancoID, "ORIGEN", 1_000_000, "", usuarioID)
 	// "DESTINO" nunca se crea.
 
 	req := transferenciaInternaRequest{
@@ -111,7 +114,7 @@ func TestTransferenciaInterna_CuentaDestinoInexistente(t *testing.T) {
 		IdempotencyKey:      uuidDePrueba(t),
 	}
 
-	w, body := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, nil)
+	w, body := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w, http.StatusNotFound)
 
 	if msg, _ := body["error"].(string); !strings.Contains(msg, "no encontrada") {
@@ -128,7 +131,8 @@ func TestTransferenciaInterna_CuentaOrigenBloqueada(t *testing.T) {
 	bancoID := bancoIDDePrueba(t)
 	handler := TransferenciaInterna(db, bancoID)
 
-	crearCuentaDirecta(t, bancoID, "ORIGEN", 1_000_000, "")
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, bancoID, "ORIGEN", 1_000_000, "", usuarioID)
 	crearCuentaDirecta(t, bancoID, "DESTINO", 0, "")
 	cambiarEstadoCuentaDirecto(t, bancoID, "ORIGEN", models.EstadoBloqueada)
 
@@ -139,7 +143,7 @@ func TestTransferenciaInterna_CuentaOrigenBloqueada(t *testing.T) {
 		IdempotencyKey:      uuidDePrueba(t),
 	}
 
-	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, nil)
+	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w, http.StatusUnprocessableEntity)
 
 	op := decodificarOperacion(t, w)
@@ -157,7 +161,8 @@ func TestTransferenciaInterna_ExcedeLimitePorOperacion(t *testing.T) {
 	bancoID := bancoIDDePrueba(t)
 	handler := TransferenciaInterna(db, bancoID)
 
-	crearCuentaDirecta(t, bancoID, "ORIGEN", 50_000_000, "")
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, bancoID, "ORIGEN", 50_000_000, "", usuarioID)
 	crearCuentaDirecta(t, bancoID, "DESTINO", 0, "")
 
 	req := transferenciaInternaRequest{
@@ -167,7 +172,7 @@ func TestTransferenciaInterna_ExcedeLimitePorOperacion(t *testing.T) {
 		IdempotencyKey:      uuidDePrueba(t),
 	}
 
-	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, nil)
+	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w, http.StatusUnprocessableEntity)
 
 	op := decodificarOperacion(t, w)
@@ -192,7 +197,8 @@ func TestTransferenciaInterna_LimiteDiarioCombinado(t *testing.T) {
 	bancoID := bancoIDDePrueba(t)
 	handler := TransferenciaInterna(db, bancoID)
 
-	crearCuentaDirecta(t, bancoID, "ORIGEN", 50_000_000, "")
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, bancoID, "ORIGEN", 50_000_000, "", usuarioID)
 	crearCuentaDirecta(t, bancoID, "DESTINO", 0, "")
 
 	primera := transferenciaInternaRequest{
@@ -201,7 +207,7 @@ func TestTransferenciaInterna_LimiteDiarioCombinado(t *testing.T) {
 		Importe:             6_000_000,
 		IdempotencyKey:      uuidDePrueba(t),
 	}
-	w1, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", primera, nil, nil)
+	w1, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", primera, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w1, http.StatusCreated)
 
 	segunda := transferenciaInternaRequest{
@@ -210,7 +216,7 @@ func TestTransferenciaInterna_LimiteDiarioCombinado(t *testing.T) {
 		Importe:             6_000_000,
 		IdempotencyKey:      uuidDePrueba(t),
 	}
-	w2, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", segunda, nil, nil)
+	w2, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", segunda, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w2, http.StatusUnprocessableEntity)
 
 	op := decodificarOperacion(t, w2)
@@ -230,7 +236,8 @@ func TestTransferenciaInterna_ReintentoMismaClaveMismosDatos(t *testing.T) {
 	bancoID := bancoIDDePrueba(t)
 	handler := TransferenciaInterna(db, bancoID)
 
-	crearCuentaDirecta(t, bancoID, "ORIGEN", 1_000_000, "")
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, bancoID, "ORIGEN", 1_000_000, "", usuarioID)
 	crearCuentaDirecta(t, bancoID, "DESTINO", 0, "")
 
 	req := transferenciaInternaRequest{
@@ -240,11 +247,11 @@ func TestTransferenciaInterna_ReintentoMismaClaveMismosDatos(t *testing.T) {
 		IdempotencyKey:      uuidDePrueba(t),
 	}
 
-	w1, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, nil)
+	w1, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w1, http.StatusCreated)
 	op1 := decodificarOperacion(t, w1)
 
-	w2, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, nil)
+	w2, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w2, http.StatusCreated)
 	op2 := decodificarOperacion(t, w2)
 
@@ -266,7 +273,8 @@ func TestTransferenciaInterna_ConflictoIdempotencia(t *testing.T) {
 	bancoID := bancoIDDePrueba(t)
 	handler := TransferenciaInterna(db, bancoID)
 
-	crearCuentaDirecta(t, bancoID, "ORIGEN", 1_000_000, "")
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, bancoID, "ORIGEN", 1_000_000, "", usuarioID)
 	crearCuentaDirecta(t, bancoID, "DESTINO", 0, "")
 
 	idempotencyKey := uuidDePrueba(t)
@@ -277,16 +285,161 @@ func TestTransferenciaInterna_ConflictoIdempotencia(t *testing.T) {
 		Importe:             100_000,
 		IdempotencyKey:      idempotencyKey,
 	}
-	w1, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", primera, nil, nil)
+	w1, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", primera, nil, map[string]string{"usuarioID": usuarioID})
 	esperarStatus(t, w1, http.StatusCreated)
 
 	segunda := primera
 	segunda.Importe = 999_999 // mismo key, importe distinto
 
-	w2, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", segunda, nil, nil)
+	w2, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", segunda, nil, map[string]string{"usuarioID": usuarioID})
 	esperarErrorContrato(t, w2, http.StatusConflict, ErrConflictoIdempotencia)
 
 	if saldo := saldoActual(t, bancoID, "ORIGEN"); saldo != 900_000 {
 		t.Fatalf("el conflicto de idempotencia no debería aplicar ningún efecto económico, saldo quedó en %d", saldo)
+	}
+}
+
+// Nuevo (seguridad): el endpoint ahora exige sesión y verifica dueño. Un
+// usuario logueado no puede transferir desde una cuenta que no es suya,
+// aunque conozca su numero_cuenta -- antes de este fix, el endpoint ni
+// siquiera exigía sesión, y cualquiera podía vaciar cualquier cuenta
+// sabiendo solo su número.
+func TestTransferenciaInterna_RechazaSiNoEsDuenoDeLaCuentaOrigen(t *testing.T) {
+	db := requireTestDB(t)
+	bancoID := bancoIDDePrueba(t)
+	handler := TransferenciaInterna(db, bancoID)
+
+	dueño := crearUsuarioDePrueba(t)
+	otro := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, bancoID, "ORIGEN", 1_000_000, "", dueño)
+	crearCuentaDirecta(t, bancoID, "DESTINO", 0, "")
+
+	req := transferenciaInternaRequest{
+		NumeroCuentaOrigen:  "ORIGEN",
+		NumeroCuentaDestino: "DESTINO",
+		Importe:             100_000,
+		IdempotencyKey:      uuidDePrueba(t),
+	}
+
+	// "otro" tiene una sesión válida, pero ORIGEN no es su cuenta.
+	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, map[string]string{"usuarioID": otro})
+	esperarStatus(t, w, http.StatusNotFound)
+
+	if saldo := saldoActual(t, bancoID, "ORIGEN"); saldo != 1_000_000 {
+		t.Fatalf("un intento no autorizado no debería tocar el saldo, quedó en %d", saldo)
+	}
+}
+
+// Sin sesión (sin usuarioID en el contexto) también se rechaza: es
+// exactamente el escenario que el fix cierra -- alguien que no inició
+// sesión pero conoce el numero_cuenta.
+func TestTransferenciaInterna_RechazaSinSesion(t *testing.T) {
+	db := requireTestDB(t)
+	bancoID := bancoIDDePrueba(t)
+	handler := TransferenciaInterna(db, bancoID)
+
+	dueño := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, bancoID, "ORIGEN", 1_000_000, "", dueño)
+	crearCuentaDirecta(t, bancoID, "DESTINO", 0, "")
+
+	req := transferenciaInternaRequest{
+		NumeroCuentaOrigen:  "ORIGEN",
+		NumeroCuentaDestino: "DESTINO",
+		Importe:             100_000,
+		IdempotencyKey:      uuidDePrueba(t),
+	}
+
+	// Sin ctxVars: simula una solicitud que nunca pasó por RequireSesion.
+	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, nil)
+	esperarStatus(t, w, http.StatusNotFound)
+
+	if saldo := saldoActual(t, bancoID, "ORIGEN"); saldo != 1_000_000 {
+		t.Fatalf("un intento sin sesión no debería tocar el saldo, quedó en %d", saldo)
+	}
+}
+
+// Nuevo (concepto, doc 02): el campo es opcional y viaja como texto
+// libre, sin tocar la lógica económica.
+func TestTransferenciaInterna_GuardaConcepto(t *testing.T) {
+	db := requireTestDB(t)
+	bancoID := bancoIDDePrueba(t)
+	handler := TransferenciaInterna(db, bancoID)
+
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, bancoID, "ORIGEN", 1_000_000, "", usuarioID)
+	crearCuentaDirecta(t, bancoID, "DESTINO", 0, "")
+
+	req := transferenciaInternaRequest{
+		NumeroCuentaOrigen:  "ORIGEN",
+		NumeroCuentaDestino: "DESTINO",
+		Importe:             100_000,
+		IdempotencyKey:      uuidDePrueba(t),
+		Concepto:            "Alquiler de noviembre",
+	}
+
+	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, map[string]string{"usuarioID": usuarioID})
+	esperarStatus(t, w, http.StatusCreated)
+
+	op := decodificarOperacion(t, w)
+	if op.Concepto == nil || *op.Concepto != "Alquiler de noviembre" {
+		t.Fatalf("esperaba concepto %q, dio %v", "Alquiler de noviembre", op.Concepto)
+	}
+}
+
+// Sin concepto, queda NULL -- no un string vacío. Es la decisión de
+// diseño: el backend no inventa una etiqueta por default, eso lo decide
+// quien consuma la API (hoy, el frontend).
+func TestTransferenciaInterna_SinConceptoQuedaNull(t *testing.T) {
+	db := requireTestDB(t)
+	bancoID := bancoIDDePrueba(t)
+	handler := TransferenciaInterna(db, bancoID)
+
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, bancoID, "ORIGEN", 1_000_000, "", usuarioID)
+	crearCuentaDirecta(t, bancoID, "DESTINO", 0, "")
+
+	req := transferenciaInternaRequest{
+		NumeroCuentaOrigen:  "ORIGEN",
+		NumeroCuentaDestino: "DESTINO",
+		Importe:             100_000,
+		IdempotencyKey:      uuidDePrueba(t),
+		// Concepto deliberadamente vacío.
+	}
+
+	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, map[string]string{"usuarioID": usuarioID})
+	esperarStatus(t, w, http.StatusCreated)
+
+	op := decodificarOperacion(t, w)
+	if op.Concepto != nil {
+		t.Fatalf("esperaba concepto nulo, dio %q", *op.Concepto)
+	}
+}
+
+// Se rechaza antes de tocar la base: ni se verifica dueño ni se reserva
+// nada si el concepto ya es inválido.
+func TestTransferenciaInterna_RechazaConceptoDemasiadoLargo(t *testing.T) {
+	db := requireTestDB(t)
+	bancoID := bancoIDDePrueba(t)
+	handler := TransferenciaInterna(db, bancoID)
+
+	usuarioID := crearUsuarioDePrueba(t)
+	crearCuentaDeUsuarioDirecta(t, bancoID, "ORIGEN", 1_000_000, "", usuarioID)
+	crearCuentaDirecta(t, bancoID, "DESTINO", 0, "")
+
+	conceptoLargo := strings.Repeat("ñ", limiteConceptoChars+1) // runas, no bytes
+
+	req := transferenciaInternaRequest{
+		NumeroCuentaOrigen:  "ORIGEN",
+		NumeroCuentaDestino: "DESTINO",
+		Importe:             100_000,
+		IdempotencyKey:      uuidDePrueba(t),
+		Concepto:            conceptoLargo,
+	}
+
+	w, _ := ejecutarJSON(t, handler, http.MethodPost, "/transferencias/internas", req, nil, map[string]string{"usuarioID": usuarioID})
+	esperarStatus(t, w, http.StatusBadRequest)
+
+	if saldo := saldoActual(t, bancoID, "ORIGEN"); saldo != 1_000_000 {
+		t.Fatalf("un concepto inválido no debería tocar el saldo, quedó en %d", saldo)
 	}
 }

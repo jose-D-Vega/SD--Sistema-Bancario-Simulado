@@ -45,15 +45,38 @@ func main() {
 
 	router := gin.Default()
 
-	router.GET("/health", handlers.Health(dbConn))
+	router.GET("/health", handlers.Health(dbConn, cfg.BancoID))
 
 	router.POST("/cuentas", handlers.CrearCuenta(dbConn, cfg.BancoID))
 	router.PATCH("/cuentas/:numero_cuenta/estado", handlers.CambiarEstadoCuenta(dbConn, cfg.BancoID))
-	router.POST("/transferencias/internas", handlers.TransferenciaInterna(dbConn, cfg.BancoID))
+
+	// Banca personal (usuarios/login/cuentas propias): extensión propia de
+	// este banco para el frontend, fuera del contrato de interoperabilidad.
+	router.POST("/usuarios/registro", handlers.RegistrarUsuario(dbConn, cfg.BancoID, cfg.SesionDuracion))
+	router.POST("/usuarios/login", handlers.LoginUsuario(dbConn, cfg.SesionDuracion))
+	router.POST("/usuarios/logout", handlers.RequireSesion(dbConn), handlers.LogoutUsuario(dbConn))
+	router.GET("/usuarios/me", handlers.RequireSesion(dbConn), handlers.ObtenerMiPerfil(dbConn))
+	router.PATCH("/usuarios/me", handlers.RequireSesion(dbConn), handlers.ActualizarMiPerfil(dbConn))
+	router.PATCH("/usuarios/me/password", handlers.RequireSesion(dbConn), handlers.CambiarMiPassword(dbConn))
+	router.GET("/usuarios/me/cuentas", handlers.RequireSesion(dbConn), handlers.ListarMisCuentas(dbConn, cfg.BancoID))
+	router.PATCH("/cuentas/:numero_cuenta/alias", handlers.RequireSesion(dbConn), handlers.CambiarAliasCuenta(dbConn, cfg.BancoID))
+	router.GET("/cuentas/:numero_cuenta/movimientos", handlers.RequireSesion(dbConn), handlers.ListarMovimientos(dbConn, cfg.BancoID))
+
+	// GET /bancos y /transferencias/resolver-destino: extensión de banca
+	// personal para el wizard de envío del frontend. Van sin middleware de
+	// firma (no son parte del contrato entre bancos) y se registran
+	// siempre, incluso sin BANCO_PRIVATE_KEY configurada: resolver un
+	// destino DENTRO de este banco no necesita hablar con nadie más. El
+	// caso "otro banco sin cliente configurado" lo maneja el propio
+	// handler (ver ResolverDestino).
+	router.GET("/bancos", handlers.ListarBancos(cfg.BancoID, registro))
+	router.GET("/transferencias/resolver-destino", handlers.ResolverDestino(dbConn, cfg.BancoID, cliente, registro))
+
+	router.POST("/transferencias/internas", handlers.RequireSesion(dbConn), handlers.TransferenciaInterna(dbConn, cfg.BancoID))
 	if cliente != nil {
-		router.POST("/transferencias/interbancarias", handlers.TransferenciaInterbancaria(dbConn, cfg.BancoID, cliente, registro))
+		router.POST("/transferencias/interbancarias", handlers.RequireSesion(dbConn), handlers.TransferenciaInterbancaria(dbConn, cfg.BancoID, cliente, registro))
 		router.POST("/transferencias/interbancarias/:idempotency_key/reconciliar",
-			handlers.ForzarReconciliacion(dbConn, cfg.BancoID, cliente, registro))
+			handlers.RequireSesion(dbConn), handlers.ForzarReconciliacion(dbConn, cfg.BancoID, cliente, registro))
 		handlers.IniciarJobReconciliacion(dbConn, cliente, registro, cfg.BancoID, cfg.ReconciliacionIntervalo)
 		log.Printf("job de reconciliación corriendo cada %s", cfg.ReconciliacionIntervalo)
 	}

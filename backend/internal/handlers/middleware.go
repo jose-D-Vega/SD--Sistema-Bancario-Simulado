@@ -3,12 +3,18 @@ package handlers
 import (
 	"bytes"
 	"crypto/ed25519"
+	"database/sql"
+	"errors"
 	"io"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
 
 	"github.com/sudameris/backend/internal/crypto"
+	"github.com/sudameris/backend/internal/models"
 )
 
 const ventanaTimestamp = 5 * time.Minute
@@ -58,4 +64,49 @@ func VerifyBankSignature(publicKeys map[string]ed25519.PublicKey) gin.HandlerFun
 		c.Set("idempotencyKey", idempotencyKey)
 		c.Next()
 	}
+}
+
+// RequireSesion implementa la autenticación de usuario final (login del
+// frontend, capa de banca personal). Es un mecanismo totalmente distinto de
+// VerifyBankSignature: acá no hay firma Ed25519 ni banco_id, hay un token de
+// sesión opaco que el servidor generó en /usuarios/login o /usuarios/registro
+// y que el cliente manda como `Authorization: Bearer <token>`.
+func RequireSesion(dbConn *sqlx.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := extraerTokenSesion(c)
+		if token == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "falta el header Authorization: Bearer <token>"})
+			return
+		}
+
+		var sesion models.Sesion
+		err := dbConn.Get(&sesion, `SELECT * FROM sesiones WHERE token = $1`, token)
+		if errors.Is(err, sql.ErrNoRows) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "sesión inválida"})
+			return
+		}
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "error verificando la sesión"})
+			return
+		}
+
+		if time.Now().UTC().After(sesion.ExpiraEn) {
+			// Limpieza oportunista: no es crítico si falla, el siguiente
+			// intento con el mismo token va a volver a toparse con esto.
+			_, _ = dbConn.Exec(`DELETE FROM sesiones WHERE token = $1`, token)
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "la sesión expiró, iniciá sesión de nuevo"})
+			return
+		}
+
+		c.Set("usuarioID", sesion.UsuarioID.String())
+		c.Next()
+	}
+}
+
+func extraerTokenSesion(c *gin.Context) string {
+	auth := c.GetHeader("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-func Health(dbConn *sqlx.DB) gin.HandlerFunc {
+func Health(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if err := dbConn.Ping(); err != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
@@ -19,7 +19,7 @@ func Health(dbConn *sqlx.DB) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, gin.H{
 			"status": "ok",
-			"banco":  "SUDAMERIS",
+			"banco":  bancoID,
 		})
 	}
 }

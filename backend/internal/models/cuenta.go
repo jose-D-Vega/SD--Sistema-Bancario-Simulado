@@ -15,10 +15,22 @@ type Cuenta struct {
 	Estado       string    `db:"estado" json:"estado"`
 	PinHash      *string   `db:"pin_hash" json:"-"`
 	CreadoEn     time.Time `db:"creado_en" json:"creado_en"`
+
+	// Campos de banca personal (extensión propia, fuera del contrato de
+	// interoperabilidad): a qué usuario pertenece, su alias local a este
+	// banco, y el tipo de cuenta. Ver migración 0006.
+	UsuarioID *uuid.UUID `db:"usuario_id" json:"usuario_id,omitempty"`
+	Alias     *string    `db:"alias" json:"alias,omitempty"`
+	Tipo      string     `db:"tipo" json:"tipo"`
 }
 
 const (
 	EstadoActiva    = "ACTIVA"
 	EstadoBloqueada = "BLOQUEADA"
 	EstadoCerrada   = "CERRADA"
+)
+
+const (
+	TipoCuentaCorriente = "CUENTA_CORRIENTE"
+	TipoCajaAhorro      = "CAJA_AHORRO"
 )
