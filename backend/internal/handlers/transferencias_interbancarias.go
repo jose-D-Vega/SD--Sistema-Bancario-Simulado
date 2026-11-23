@@ -66,29 +66,29 @@ func TransferenciaInterbancaria(dbConn *sqlx.DB, bancoID string, cliente *interb
 			return
 		}
 
-		var existente models.Operacion
-		err = dbConn.Get(&existente, `
-			SELECT * FROM operaciones
-			WHERE banco_origen = $1 AND idempotency_key = $2 AND tipo = $3
-		`, bancoID, req.IdempotencyKey, models.TipoTransferenciaInterbancaria)
-		if err == nil {
-			if existente.NumeroCuentaOrigen != req.NumeroCuentaOrigen ||
-				existente.BancoDestino == nil || *existente.BancoDestino != req.BancoDestino ||
-				existente.NumeroCuentaDestino == nil || *existente.NumeroCuentaDestino != req.NumeroCuentaDestino ||
-				existente.Importe != req.Importe {
+		existente, encontrada, err := buscarOperacionPorIdempotencia(dbConn, bancoID, req.IdempotencyKey)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "error verificando idempotencia"})
+			return
+		}
+		if encontrada {
+			if !coincideTransferenciaInterbancaria(existente, req) {
 				responderErrorContrato(c, ErrConflictoIdempotencia, "la clave de idempotencia ya se usó con datos distintos")
 				return
 			}
 			responderOperacionInterbancaria(c, existente)
 			return
 		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "error verificando idempotencia"})
-			return
-		}
 
 		op, err := reservarYDebitar(dbConn, bancoID, req)
 		if err != nil {
+			if manejarCarreraDeIdempotencia(c, dbConn, bancoID, req.IdempotencyKey, err,
+				"la clave de idempotencia ya se usó con datos distintos",
+				func(e models.Operacion) bool { return coincideTransferenciaInterbancaria(e, req) },
+				func(e models.Operacion) { responderOperacionInterbancaria(c, e) },
+			) {
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -114,6 +114,17 @@ func TransferenciaInterbancaria(dbConn *sqlx.DB, bancoID string, cliente *interb
 
 		responderOperacionInterbancaria(c, op)
 	}
+}
+
+// coincideTransferenciaInterbancaria compara una operación ya registrada
+// con los datos de esta solicitud: si coinciden, es un reintento legítimo
+// de la misma operación; si no, es un conflicto real de idempotencia. La
+// usan tanto el fast path normal como manejarCarreraDeIdempotencia.
+func coincideTransferenciaInterbancaria(existente models.Operacion, req transferenciaInterbancariaRequest) bool {
+	return existente.NumeroCuentaOrigen == req.NumeroCuentaOrigen &&
+		existente.BancoDestino != nil && *existente.BancoDestino == req.BancoDestino &&
+		existente.NumeroCuentaDestino != nil && *existente.NumeroCuentaDestino == req.NumeroCuentaDestino &&
+		existente.Importe == req.Importe
 }
 
 // reservarYDebitar valida la cuenta origen y, si está todo bien, descuenta

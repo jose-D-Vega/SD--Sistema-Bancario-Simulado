@@ -64,23 +64,17 @@ func TransferenciaInterna(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 		// el resultado guardado en vez de reprocesar — pero solo si la
 		// solicitud es igual a la primera vez (doc 02, sección 3). Si alguno
 		// de los datos cambió, es un conflicto de idempotencia, no un reintento.
-		var existente models.Operacion
-		err = dbConn.Get(&existente, `
-			SELECT * FROM operaciones
-			WHERE banco_origen = $1 AND idempotency_key = $2 AND tipo = $3
-		`, bancoID, req.IdempotencyKey, models.TipoTransferenciaInterna)
-		if err == nil {
-			if existente.NumeroCuentaOrigen != req.NumeroCuentaOrigen ||
-				existente.NumeroCuentaDestino == nil || *existente.NumeroCuentaDestino != req.NumeroCuentaDestino ||
-				existente.Importe != req.Importe {
+		existente, encontrada, err := buscarOperacionPorIdempotencia(dbConn, bancoID, req.IdempotencyKey)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "error verificando idempotencia"})
+			return
+		}
+		if encontrada {
+			if !coincideTransferenciaInterna(existente, req) {
 				responderErrorContrato(c, ErrConflictoIdempotencia, "la clave de idempotencia ya se usó con datos distintos")
 				return
 			}
 			responderOperacion(c, existente)
-			return
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "error verificando idempotencia"})
 			return
 		}
 
@@ -141,6 +135,13 @@ func TransferenciaInterna(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 		if motivoRechazo != "" {
 			op, err := registrarOperacion(tx, bancoID, req, models.OperacionRechazada, &motivoRechazo)
 			if err != nil {
+				if manejarCarreraDeIdempotencia(c, dbConn, bancoID, req.IdempotencyKey, err,
+					"la clave de idempotencia ya se usó con datos distintos",
+					func(e models.Operacion) bool { return coincideTransferenciaInterna(e, req) },
+					func(e models.Operacion) { responderOperacion(c, e) },
+				) {
+					return
+				}
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "error registrando operación"})
 				return
 			}
@@ -163,6 +164,13 @@ func TransferenciaInterna(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 
 		op, err := registrarOperacion(tx, bancoID, req, models.OperacionCompletada, nil)
 		if err != nil {
+			if manejarCarreraDeIdempotencia(c, dbConn, bancoID, req.IdempotencyKey, err,
+				"la clave de idempotencia ya se usó con datos distintos",
+				func(e models.Operacion) bool { return coincideTransferenciaInterna(e, req) },
+				func(e models.Operacion) { responderOperacion(c, e) },
+			) {
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "error registrando operación"})
 			return
 		}
@@ -174,6 +182,18 @@ func TransferenciaInterna(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 
 		responderOperacion(c, op)
 	}
+}
+
+// coincideTransferenciaInterna compara una operación ya registrada con
+// los datos de esta solicitud: si coinciden, es un reintento legítimo de
+// la misma operación (mismo idempotency_key, mismos datos); si no, es un
+// conflicto real de idempotencia. La usan tanto el fast path normal como
+// manejarCarreraDeIdempotencia, para que ambos caminos decidan exactamente
+// igual.
+func coincideTransferenciaInterna(existente models.Operacion, req transferenciaInternaRequest) bool {
+	return existente.NumeroCuentaOrigen == req.NumeroCuentaOrigen &&
+		existente.NumeroCuentaDestino != nil && *existente.NumeroCuentaDestino == req.NumeroCuentaDestino &&
+		existente.Importe == req.Importe
 }
 
 func registrarOperacion(tx *sqlx.Tx, bancoID string, req transferenciaInternaRequest, estado string, motivoRechazo *string) (models.Operacion, error) {

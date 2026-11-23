@@ -47,8 +47,13 @@ func main() {
 
 	router.GET("/health", handlers.Health(dbConn, cfg.BancoID))
 
-	router.POST("/cuentas", handlers.CrearCuenta(dbConn, cfg.BancoID))
-	router.PATCH("/cuentas/:numero_cuenta/estado", handlers.CambiarEstadoCuenta(dbConn, cfg.BancoID))
+	// Back office del propio banco: ni forman parte del contrato entre
+	// bancos (sin firma) ni de banca personal (sin sesión de usuario), así
+	// que van protegidas con un secreto de admin en vez de quedar abiertas
+	// en un backend que de por sí tiene que estar expuesto en red para el
+	// contrato interbancario. Ver handlers.RequireAdminKey.
+	router.POST("/cuentas", handlers.RequireAdminKey(cfg.AdminAPIKey), handlers.CrearCuenta(dbConn, cfg.BancoID))
+	router.PATCH("/cuentas/:numero_cuenta/estado", handlers.RequireAdminKey(cfg.AdminAPIKey), handlers.CambiarEstadoCuenta(dbConn, cfg.BancoID))
 
 	// Banca personal (usuarios/login/cuentas propias): extensión propia de
 	// este banco para el frontend, fuera del contrato de interoperabilidad.

@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"io"
@@ -109,4 +110,51 @@ func extraerTokenSesion(c *gin.Context) string {
 		return ""
 	}
 	return strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+}
+
+// RequireAdminKey protege operaciones de back office del propio banco
+// (alta y bloqueo/cierre de cuentas, ver cuentas.go) que no encajan ni en
+// VerifyBankSignature (no son parte del contrato entre bancos: ningún
+// otro banco debería poder crear o bloquear cuentas en el nuestro) ni en
+// RequireSesion (son operaciones de antes de que exista un usuario dueño
+// de la cuenta -- p. ej. el seed inicial, o una cuenta de comercio sin
+// titular). Es deliberadamente un mecanismo simple -- un secreto
+// compartido en un header, no una sesión ni una firma -- porque quien
+// debe poder llamar a esto es el propio equipo operando su banco, nunca
+// un cliente final ni otro banco.
+//
+// Como el backend tiene que estar expuesto en red para que el contrato
+// interbancario funcione, estas rutas son alcanzables por cualquiera que
+// sepa la URL del banco si no se protegen -- no es un escenario
+// hipotético de producción, es el escenario real de la integración entre
+// los 4 grupos.
+//
+// Si adminKey viene vacío (ADMIN_API_KEY no configurada en el entorno),
+// el middleware bloquea TODA solicitud en vez de dejarla pasar: es
+// fail-closed a propósito, para que olvidarse de configurar la variable
+// no termine reabriendo el mismo hueco que esto viene a cerrar.
+func RequireAdminKey(adminKey string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if adminKey == "" {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+				"error": "esta ruta requiere ADMIN_API_KEY configurada en el servidor",
+			})
+			return
+		}
+
+		recibida := c.GetHeader("X-Admin-Key")
+		// subtle.ConstantTimeCompare solo compara en tiempo constante
+		// cuando los dos slices miden igual (si no, devuelve 0 de
+		// entrada); comparar la longitud antes es solo para saltear el
+		// trabajo cuando obviamente no coincide, no hace falta que la
+		// longitud del secreto sea confidencial.
+		if len(recibida) != len(adminKey) || subtle.ConstantTimeCompare([]byte(recibida), []byte(adminKey)) != 1 {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "falta o es inválido el header X-Admin-Key",
+			})
+			return
+		}
+
+		c.Next()
+	}
 }

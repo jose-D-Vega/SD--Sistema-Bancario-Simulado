@@ -58,6 +58,7 @@ services:
       DATABASE_URL: postgresql://root@cockroachdb:26257/sudameris?sslmode=disable
       BANCO_PRIVATE_KEY: ${BANCO_PRIVATE_KEY}
       REGISTRO_BANCOS_PATH: /registro_bancos.json
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
     volumes:
       - ./registro_bancos.json:/registro_bancos.json:ro
     depends_on:
@@ -112,6 +113,7 @@ services:
       DATABASE_URL: postgresql://root@cockroachdb:26257/bco_test?sslmode=disable
       BANCO_PRIVATE_KEY: ${BCO_TEST_PRIVATE_KEY}
       REGISTRO_BANCOS_PATH: /registro_bancos.json
+      ADMIN_API_KEY: ${BCO_TEST_ADMIN_API_KEY}
     volumes:
       - ./registro_bancos_bco_test.json:/registro_bancos.json:ro
     depends_on:

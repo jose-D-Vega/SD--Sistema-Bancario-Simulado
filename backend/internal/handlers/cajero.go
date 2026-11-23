@@ -36,6 +36,14 @@ func responderAutorizacion(c *gin.Context, operacionID string, op models.Operaci
 	c.JSON(http.StatusOK, body)
 }
 
+// coincideRetiroCajero compara una operación ya registrada con los datos
+// de esta solicitud: si coinciden, es un reintento legítimo del mismo
+// retiro; si no, es un conflicto real de idempotencia. La usan tanto el
+// fast path normal como manejarCarreraDeIdempotencia.
+func coincideRetiroCajero(existente models.Operacion, req autorizacionCajeroRequest) bool {
+	return existente.NumeroCuentaOrigen == req.NumeroCuenta && existente.Importe == req.Importe
+}
+
 // AutorizarRetiroCajero implementa POST /cajero/autorizaciones (doc 03):
 // el cajero (de este banco o de cualquier otro) le pide al banco emisor
 // que autorice y debite un retiro de una cuenta propia.
@@ -57,20 +65,17 @@ func AutorizarRetiroCajero(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 			return
 		}
 
-		var existente models.Operacion
-		err := dbConn.Get(&existente, `
-			SELECT * FROM operaciones WHERE banco_origen = $1 AND idempotency_key = $2 AND tipo = $3
-		`, bankID, req.OperacionID, models.TipoRetiroCajero)
-		if err == nil {
-			if existente.NumeroCuentaOrigen != req.NumeroCuenta || existente.Importe != req.Importe {
+		existente, encontrada, err := buscarOperacionPorIdempotencia(dbConn, bankID, req.OperacionID)
+		if err != nil {
+			responderErrorContrato(c, ErrInterno, "error verificando idempotencia")
+			return
+		}
+		if encontrada {
+			if !coincideRetiroCajero(existente, req) {
 				responderErrorContrato(c, ErrConflictoIdempotencia, "el operacion_id ya se usó con datos distintos")
 				return
 			}
 			responderAutorizacion(c, req.OperacionID, existente)
-			return
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			responderErrorContrato(c, ErrInterno, "error verificando idempotencia")
 			return
 		}
 
@@ -117,6 +122,13 @@ func AutorizarRetiroCajero(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			`, models.TipoRetiroCajero, req.OperacionID, bankID, req.NumeroCuenta,
 				bancoID, req.Importe, models.OperacionRechazada, codigoRechazo); insErr != nil {
+				if manejarCarreraDeIdempotencia(c, dbConn, bankID, req.OperacionID, insErr,
+					"el operacion_id ya se usó con datos distintos",
+					func(e models.Operacion) bool { return coincideRetiroCajero(e, req) },
+					func(e models.Operacion) { responderAutorizacion(c, req.OperacionID, e) },
+				) {
+					return
+				}
 				responderErrorContrato(c, ErrInterno, "error registrando operación")
 				return
 			}
@@ -138,6 +150,13 @@ func AutorizarRetiroCajero(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 			VALUES ($1, $2, $3, $4, $5, $6, $7)
 		`, models.TipoRetiroCajero, req.OperacionID, bankID, req.NumeroCuenta,
 			bancoID, req.Importe, models.OperacionCompletada); err != nil {
+			if manejarCarreraDeIdempotencia(c, dbConn, bankID, req.OperacionID, err,
+				"el operacion_id ya se usó con datos distintos",
+				func(e models.Operacion) bool { return coincideRetiroCajero(e, req) },
+				func(e models.Operacion) { responderAutorizacion(c, req.OperacionID, e) },
+			) {
+				return
+			}
 			responderErrorContrato(c, ErrInterno, "error registrando operación")
 			return
 		}

@@ -40,6 +40,15 @@ func responderCredito(c *gin.Context, transferID string, op models.Operacion) {
 	c.JSON(http.StatusOK, body)
 }
 
+// coincideCredito compara una operación ya registrada con los datos de
+// esta solicitud: si coinciden, es un reintento legítimo del mismo
+// crédito; si no, es un conflicto real de idempotencia. La usan tanto el
+// fast path normal como manejarCarreraDeIdempotencia.
+func coincideCredito(existente models.Operacion, req creditoRequest) bool {
+	return existente.NumeroCuentaDestino != nil && *existente.NumeroCuentaDestino == req.CuentaDestino &&
+		existente.Importe == req.Importe
+}
+
 // RecibirCredito implementa POST /interbancario/creditos (doc 02, paso 2):
 // otro banco nos pide acreditar un importe en una cuenta nuestra.
 func RecibirCredito(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
@@ -67,20 +76,17 @@ func RecibirCredito(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 		// detalle cosmético que el contrato ni siquiera limita.
 		concepto := conceptoOrNil(truncarConcepto(req.Concepto))
 
-		var existente models.Operacion
-		err := dbConn.Get(&existente, `
-			SELECT * FROM operaciones WHERE banco_origen = $1 AND idempotency_key = $2
-		`, bankID, req.TransferID)
-		if err == nil {
-			if existente.NumeroCuentaDestino == nil || *existente.NumeroCuentaDestino != req.CuentaDestino || existente.Importe != req.Importe {
+		existente, encontrada, err := buscarOperacionPorIdempotencia(dbConn, bankID, req.TransferID)
+		if err != nil {
+			responderErrorContrato(c, ErrInterno, "error verificando idempotencia")
+			return
+		}
+		if encontrada {
+			if !coincideCredito(existente, req) {
 				responderErrorContrato(c, ErrConflictoIdempotencia, "transfer_id ya usado con datos distintos")
 				return
 			}
 			responderCredito(c, req.TransferID, existente)
-			return
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			responderErrorContrato(c, ErrInterno, "error verificando idempotencia")
 			return
 		}
 
@@ -115,6 +121,13 @@ func RecibirCredito(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			`, models.TipoTransferenciaInterbancaria, req.TransferID, bankID, req.CuentaOrigen,
 				bancoID, req.CuentaDestino, req.Importe, models.OperacionRechazada, codigoRechazo, concepto); insErr != nil {
+				if manejarCarreraDeIdempotencia(c, dbConn, bankID, req.TransferID, insErr,
+					"transfer_id ya usado con datos distintos",
+					func(e models.Operacion) bool { return coincideCredito(e, req) },
+					func(e models.Operacion) { responderCredito(c, req.TransferID, e) },
+				) {
+					return
+				}
 				responderErrorContrato(c, ErrInterno, "error registrando operación")
 				return
 			}
@@ -136,6 +149,13 @@ func RecibirCredito(dbConn *sqlx.DB, bancoID string) gin.HandlerFunc {
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		`, models.TipoTransferenciaInterbancaria, req.TransferID, bankID, req.CuentaOrigen,
 			bancoID, req.CuentaDestino, req.Importe, models.OperacionCompletada, concepto); err != nil {
+			if manejarCarreraDeIdempotencia(c, dbConn, bankID, req.TransferID, err,
+				"transfer_id ya usado con datos distintos",
+				func(e models.Operacion) bool { return coincideCredito(e, req) },
+				func(e models.Operacion) { responderCredito(c, req.TransferID, e) },
+			) {
+				return
+			}
 			responderErrorContrato(c, ErrInterno, "error registrando operación")
 			return
 		}

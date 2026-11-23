@@ -29,6 +29,15 @@ type Config struct {
 	// expirar. Esto es parte de la capa de banca personal, separada del
 	// contrato de interoperabilidad entre bancos.
 	SesionDuracion time.Duration
+
+	// Secreto compartido que protege las operaciones de back office del
+	// propio banco (alta y bloqueo/cierre de cuentas, ver
+	// handlers.RequireAdminKey): no son parte del contrato entre bancos
+	// (no llevan firma Ed25519) ni de banca personal (no hay un usuario
+	// dueño todavía), así que necesitan su propio mecanismo. Vacío por
+	// defecto a propósito: RequireAdminKey bloquea todo si esto no está
+	// configurado, en vez de dejar pasar.
+	AdminAPIKey string
 }
 
 func Load() Config {
@@ -41,6 +50,7 @@ func Load() Config {
 		BancoURLs:               map[string]string{},
 		ReconciliacionIntervalo: time.Duration(getEnvInt("RECONCILIACION_INTERVALO_SEGUNDOS", 30)) * time.Second,
 		SesionDuracion:          time.Duration(getEnvInt("SESION_DURACION_HORAS", 24)) * time.Hour,
+		AdminAPIKey:             getEnv("ADMIN_API_KEY", ""),
 	}
 }
 

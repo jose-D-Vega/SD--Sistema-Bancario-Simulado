@@ -38,22 +38,36 @@ func esDuenoDeCuenta(q getter, bancoID, numeroCuenta, usuarioID string) (bool, e
 }
 
 // totalSalidoHoy suma transferencias salientes (internas + interbancarias)
-// y retiros de cajero ya COMPLETADOS de una cuenta, desde las 00:00 hora
-// de Paraguay (doc 01, sección 4). Para transferencias, la cuenta es
-// nuestra si banco_origen = bancoID; para retiros de cajero, la cuenta es
-// nuestra si banco_destino = bancoID (el cajero puede ser de otro banco).
+// y retiros de cajero de una cuenta, desde las 00:00 hora de Paraguay
+// (doc 01, sección 4). Para transferencias, la cuenta es nuestra si
+// banco_origen = bancoID; para retiros de cajero, la cuenta es nuestra si
+// banco_destino = bancoID (el cajero puede ser de otro banco).
+//
+// Cuenta COMPLETADA, RESERVADA y PENDIENTE -- no solo COMPLETADA -- porque
+// una transferencia interbancaria saliente (transferencias_interbancarias.go)
+// ya descuenta el saldo de origen en el momento en que queda RESERVADA,
+// antes de llamar al banco destino, y puede quedar PENDIENTE un buen rato
+// si esa llamada da timeout (a la espera del job de reconciliación). Si
+// solo contáramos COMPLETADA, el dinero ya habría salido de la cuenta sin
+// contar para el límite diario combinado mientras la operación sigue sin
+// resolverse: alcanzaría con que el banco destino tarde o esté caído para
+// que una segunda operación sobre la misma cuenta pase el chequeo viendo
+// un total más bajo del real y, sumadas, superen el límite diario.
+// RECHAZADA, FALLIDA y REVERTIDA quedan afuera a propósito: esos estados
+// ya le devolvieron el saldo a la cuenta (ver revertirReserva), así que no
+// deben seguir "ocupando" cupo del límite diario tampoco.
 func totalSalidoHoy(q getter, bancoID, numeroCuenta string) (int64, error) {
 	var total int64
 	err := q.Get(&total, `
 		SELECT COALESCE(SUM(importe), 0) FROM operaciones
 		WHERE numero_cuenta_origen = $1
-		  AND estado = $2
+		  AND estado IN ($2, $3, $4)
 		  AND creado_en >= (date_trunc('day', now() AT TIME ZONE 'America/Asuncion') AT TIME ZONE 'America/Asuncion')
 		  AND (
-		    (banco_origen = $3 AND tipo IN ($4, $5))
-		    OR (banco_destino = $3 AND tipo = $6)
+		    (banco_origen = $5 AND tipo IN ($6, $7))
+		    OR (banco_destino = $5 AND tipo = $8)
 		  )
-	`, numeroCuenta, models.OperacionCompletada, bancoID,
+	`, numeroCuenta, models.OperacionCompletada, models.OperacionReservada, models.OperacionPendiente, bancoID,
 		models.TipoTransferenciaInterna, models.TipoTransferenciaInterbancaria, models.TipoRetiroCajero)
 	return total, err
 }
