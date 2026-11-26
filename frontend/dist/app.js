@@ -28,16 +28,14 @@ const app = createApp({
     try {
       saved = JSON.parse(localStorage.getItem("esmeralda-banca-v2"));
     } catch {}
-    const db = Vue.reactive(
-      saved?.version === 2 && Array.isArray(saved.users) ? saved : Bank.seed(),
-    );
+    const db = Vue.reactive(Bank.migrate(saved));
     for (const item of db.external)
       if (item.bank === "Esmeralda") item.bank = "SUDAMERIS";
     const currentUser = ref(db.users[0]);
-    const accountAlias = computed(() =>
-      Bank.accountAlias(currentUser.value, activeAccount.value),
-    );
     const profile = computed(() => currentUser.value.profile),
+      username = computed(() => currentUser.value.username),
+      accountAlias = computed(() => Bank.accountAlias(account.value)),
+      aliasRaw = computed(() => (account.value && account.value.alias) || ""),
       accounts = computed(() => currentUser.value.accounts),
       transactions = computed(() => currentUser.value.transactions),
       settings = computed(() => currentUser.value.settings),
@@ -82,11 +80,13 @@ const app = createApp({
       credentials = ref({ user: "", password: "" }),
       registration = ref({
         name: "",
+        username: "",
         confirm: "",
         document: "",
-        type: "Caja de ahorro",
+        type: Bank.TIPO.AHORRO,
         accepted: false,
       }),
+      usernameEdited = ref(false),
       authError = ref(""),
       showPassword = ref(false),
       activeAccount = ref(0),
@@ -108,7 +108,11 @@ const app = createApp({
       passwordErrors = ref({}),
       profileErrors = ref({}),
       fieldErrors = ref({}),
-      aliasChoice = ref("");
+      aliasChoice = ref(""),
+      aliasTarget = ref(-1),
+      aliasError = ref(""),
+      nuevaCuenta = ref({ type: Bank.TIPO.AHORRO }),
+      nuevaCuentaError = ref("");
     let toastTimer;
     const account = computed(() => accounts.value[activeAccount.value]),
       initials = computed(() =>
@@ -122,6 +126,15 @@ const app = createApp({
       firstName = computed(() => profile.value.name.split(" ")[0]);
     const money = (n) =>
       new Intl.NumberFormat("es-PY", { maximumFractionDigits: 0 }).format(n);
+    // El backend guarda los códigos (CUENTA_CORRIENTE, ACTIVA); la app los
+    // muestra lindos sin perder el dato real.
+    const tipoLabel = (cuenta) => Bank.TIPO_LABEL[cuenta.type] || cuenta.type;
+    const estadoLabel = (estado) => Bank.ESTADO_LABEL[estado] || estado;
+    const formatearAlias = (valor) => Bank.formatearAlias(valor);
+    const tiposCuenta = Object.entries(Bank.TIPO_LABEL).map(([value, label]) => ({
+      value,
+      label,
+    }));
     const persist = () => {
       try {
         localStorage.setItem("esmeralda-banca-v2", JSON.stringify(db));
@@ -136,8 +149,11 @@ const app = createApp({
     };
     const go = (p) => {
       if (p === "perfil") {
-        aliasChoice.value = currentUser.value.profile.alias || "";
         profileErrors.value = {};
+      }
+      if (p === "alias") {
+        aliasError.value = "";
+        aliasTarget.value = -1;
       }
       page.value = p;
       window.scrollTo({ top: 0, behavior: "instant" });
@@ -157,7 +173,10 @@ const app = createApp({
       passwordErrors.value = {};
       profileErrors.value = {};
       fieldErrors.value = {};
-      aliasChoice.value = currentUser.value.profile.alias || "";
+      aliasChoice.value = "";
+      aliasTarget.value = -1;
+      aliasError.value = "";
+      nuevaCuentaError.value = "";
       supportError.value = "";
       paymentCode.value = "";
       paymentError.value = "";
@@ -170,13 +189,6 @@ const app = createApp({
       credentials.value = { user: "", password: "" };
       resetSession();
     };
-    // Un alias no puede repetirse entre las cuentas de este banco ni con los
-    // alias de los otros bancos simulados (db.external).
-    const aliasTaken = (alias, exceptId) =>
-      db.users.some(
-        (u) =>
-          u.id !== exceptId && (u.profile.alias || "").toLowerCase() === alias,
-      ) || db.external.some((e) => (e.alias || "").toLowerCase() === alias);
     const setAuth = (mode) => {
       auth.value = mode;
       authError.value = "";
@@ -185,6 +197,18 @@ const app = createApp({
       credentials.value.user = "";
       registration.value.confirm = "";
       registration.value.accepted = false;
+      usernameEdited.value = false;
+    };
+    // Sugiere un @ a partir del nombre mientras el usuario no lo edite a mano.
+    const sugerirUsuario = () => {
+      if (usernameEdited.value) return;
+      registration.value.username = registration.value.name
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, ".")
+        .replace(/^\.+|\.+$/g, "")
+        .slice(0, 30);
     };
     const authenticate = async () => {
       authError.value = "";
@@ -201,20 +225,33 @@ const app = createApp({
             "Para recuperar tu acceso, contactá a atención al cliente.";
         return;
       }
-      // El ingreso es con el número de documento (no hay "usuario").
-      // En el backend, username = documento y el login acepta ambos.
+      // El "usuario" es el @ de la app. También aceptamos la cédula para
+      // entrar más rápido (el backend hoy sólo busca por username).
       const registering = auth.value === "register",
         reg = registration.value,
-        doc = (registering ? reg.document : credentials.value.user).trim(),
-        docKey = registering ? "document" : "user";
-      if (!doc) errors[docKey] = "Ingresá tu número de documento.";
-      else if (!DOCUMENT_PATTERN.test(doc))
-        errors[docKey] = "Ingresá un documento de 5 a 12 dígitos.";
+        id = (registering ? reg.username : credentials.value.user)
+          .trim()
+          .toLowerCase()
+          .replace(/^@+/, "");
+      if (registering) {
+        if (!id) errors.username = "Elegí tu usuario (@).";
+        else if (!Bank.USERNAME_RE.test(id))
+          errors.username =
+            "Usá de 3 a 30 caracteres: minúsculas, números, punto, guion o guion bajo.";
+        else if (!Bank.usernameDisponible(db, id))
+          errors.username = "Ese usuario (@) ya está en uso.";
+      } else if (!id) errors.user = "Ingresá tu usuario (@) o tu cédula.";
       if (!password) errors.password = "Ingresá tu contraseña.";
       else if (passwordHasWhitespace(password))
         errors.password = "La contraseña no puede contener espacios.";
       if (registering) {
+        const documento = (reg.document || "").trim();
         if (!reg.name.trim()) errors.name = "Ingresá tu nombre y apellido.";
+        if (!documento) errors.document = "Ingresá tu número de documento.";
+        else if (!DOCUMENT_PATTERN.test(documento))
+          errors.document = "Ingresá un documento de 5 a 12 dígitos.";
+        else if (db.users.some((u) => u.profile.document === documento))
+          errors.document = "Ya existe una cuenta con ese documento.";
         if (!reg.confirm) errors.confirm = "Repetí tu contraseña.";
         else if (!errors.password && password !== reg.confirm)
           errors.confirm = "Las contraseñas no coinciden.";
@@ -226,67 +263,50 @@ const app = createApp({
       busy.value = true;
       try {
         if (registering) {
-          if (db.users.some((u) => u.profile.document === doc)) {
-            fieldErrors.value = {
-              document: "Ya existe una cuenta con ese documento.",
-            };
-            return;
-          }
-          const used = new Set(
-            db.users.flatMap((u) => u.accounts.map((a) => a.number)),
-          );
-          let n = 25748000 + db.users.length * 10 + 1,
-            number;
-          do {
-            number = String(n).padStart(9, "0");
-            n += 10;
-          } while (used.has(number));
           const user = {
             id: crypto.randomUUID(),
-            username: doc,
+            username: id,
             passwordHash: await digest(password),
             profile: {
               name: reg.name.trim(),
-              document: doc,
+              document: (reg.document || "").trim(),
               email: "",
               phone: "",
-              alias: "",
             },
-            accounts: [
-              {
-                type: reg.type,
-                number,
-                balance: 0,
-                status: "Activa",
-                spent: 0,
-                spentDate: "",
-              },
-            ],
+            accounts: [],
             transactions: [],
             settings: { notifications: true },
             cardFrozen: false,
           };
+          Bank.openAccount(db, user, reg.type);
           db.users.push(user);
           currentUser.value = user;
           persist();
         } else {
-          const user = db.users.find((u) => u.profile.document === doc);
+          const user = db.users.find(
+            (u) => u.username === id || u.profile.document === id,
+          );
           if (!user || user.passwordHash !== (await digest(password)))
-            throw Error("Documento o contraseña incorrectos.");
+            throw Error("Usuario o contraseña incorrectos.");
           currentUser.value = user;
         }
         credentials.value = { user: "", password: "" };
         registration.value = {
           name: "",
+          username: "",
           confirm: "",
           document: "",
-          type: "Caja de ahorro",
+          type: Bank.TIPO.AHORRO,
           accepted: false,
         };
+        usernameEdited.value = false;
         resetSession();
         logged.value = true;
-        go(registering ? "perfil" : "inicio");
-        if (registering) notify("Cuenta creada. Elegí tu alias.");
+        go(registering ? "alias" : "inicio");
+        if (registering) {
+          notify("Cuenta creada. Elegí tu alias.");
+          abrirAlias(0);
+        }
       } catch (e) {
         authError.value = e.message;
       } finally {
@@ -338,7 +358,7 @@ const app = createApp({
           activeAccount.value,
           transfer.value,
           paymentKind.value,
-          "ESM-" + crypto.randomUUID(),
+          crypto.randomUUID(),
         );
         persist();
         if (settings.value.notifications) {
@@ -367,7 +387,7 @@ const app = createApp({
       }
       transfer.value = {
         bank: "SUDAMERIS",
-        destination: "cantina.unca",
+        destination: "80012345",
         name: "Cantina Tecnología UNCA",
         amount: 5500,
         concept: "Pago QR",
@@ -463,24 +483,64 @@ const app = createApp({
       );
       notify("Movimientos exportados");
     };
-    // El alias se elige entre datos que el titular ya tiene: cédula, celular
-    // o correo (los dos últimos, una vez cargados en el perfil).
-    const aliasOptions = computed(() => {
-      const p = profile.value,
-        list = [],
-        add = (label, value) => {
-          if (value && !list.some((o) => o.value === value))
-            list.push({ label, value });
-        };
-      add("Cédula · " + p.document, p.document);
-      const phone = digitsOf(p.phone);
-      if (phone.length >= 7) add("Celular · " + phone, phone);
-      const email = (p.email || "").trim().toLowerCase();
-      if (EMAIL_PATTERN.test(email)) add("Correo · " + email, email);
-      if (p.alias && !list.some((o) => o.value === p.alias))
-        list.unshift({ label: "Alias actual · " + p.alias, value: p.alias });
-      return list;
-    });
+    // -----------------------------------------------------------------
+    // Alias: es de la CUENTA (no del perfil) y es único en todo el sistema.
+    // El usuario (@) es otra cosa: sirve para identificarte en la app.
+    // -----------------------------------------------------------------
+    const aliasOptions = computed(() =>
+      aliasTarget.value >= 0
+        ? Bank.aliasOptions(db, currentUser.value, aliasTarget.value)
+        : [],
+    );
+    const abrirAlias = (index) => {
+      aliasTarget.value = index;
+      aliasChoice.value = currentUser.value.accounts[index].alias || "";
+      aliasError.value = "";
+      modal.value = "alias";
+    };
+    const cerrarAlias = () => {
+      modal.value = "";
+      aliasError.value = "";
+    };
+    const guardarAlias = () => {
+      try {
+        const valor = Bank.setAlias(
+          db,
+          currentUser.value,
+          aliasTarget.value,
+          aliasChoice.value,
+        );
+        persist();
+        modal.value = "";
+        notify("Alias actualizado: " + valor);
+      } catch (e) {
+        aliasError.value = e.message;
+      }
+    };
+    // -----------------------------------------------------------------
+    // Abrir otra cuenta sin volver a registrarse.
+    // -----------------------------------------------------------------
+    const abrirNuevaCuenta = () => {
+      nuevaCuenta.value = { type: Bank.TIPO.AHORRO };
+      nuevaCuentaError.value = "";
+      modal.value = "nueva-cuenta";
+    };
+    const crearCuenta = () => {
+      try {
+        const { index } = Bank.openAccount(
+          db,
+          currentUser.value,
+          nuevaCuenta.value.type,
+        );
+        persist();
+        activeAccount.value = index;
+        modal.value = "";
+        notify("Cuenta abierta. Elegí su alias.");
+        abrirAlias(index);
+      } catch (e) {
+        nuevaCuentaError.value = e.message;
+      }
+    };
     const saveProfile = () => {
       const p = profile.value,
         errors = {};
@@ -492,16 +552,8 @@ const app = createApp({
         errors.email = "Ingresá un correo válido.";
       if (p.phone && digitsOf(p.phone).length < 7)
         errors.phone = "Ingresá un celular válido.";
-      const chosen = aliasChoice.value;
-      if (chosen && chosen !== (p.alias || "")) {
-        if (!aliasOptions.value.some((o) => o.value === chosen))
-          errors.alias = "Elegí tu cédula, celular o correo como alias.";
-        else if (aliasTaken(chosen, currentUser.value.id))
-          errors.alias = "Ese alias ya está en uso.";
-      }
       profileErrors.value = errors;
       if (Object.keys(errors).length) return;
-      if (chosen) p.alias = chosen;
       persist();
       notify("Perfil actualizado");
     };
@@ -534,11 +586,27 @@ const app = createApp({
         passwordErrors.value = {};
       }
     });
-    const contacts = [
-      { name: "Lucía Bogado", alias: "lucia.bogado" },
-      { name: "Martín Benítez", alias: "martin.benitez" },
-      { name: "Ana López", alias: "ana.lopez" },
-    ];
+    // Contactos: personas de la app, identificadas por su @. Para transferir
+    // se usa su alias (o el número de cuenta si todavía no eligió uno).
+    const contacts = computed(() => {
+      const lista = [];
+      for (const user of db.users) {
+        if (user.id === currentUser.value.id) continue;
+        const cuenta = user.accounts.find((a) => a.status === "ACTIVA");
+        if (!cuenta) continue;
+        lista.push({
+          name: user.profile.name,
+          handle: user.username,
+          alias: cuenta.alias || "",
+          aliasVisible: cuenta.alias
+            ? Bank.formatearAlias(cuenta.alias)
+            : cuenta.number,
+          destination: cuenta.alias || cuenta.number,
+          hasAlias: !!cuenta.alias,
+        });
+      }
+      return lista;
+    });
     const menu = [
       { title: "Pagar QR", subtitle: "", icon: "qr", page: "qr" },
       {
@@ -546,6 +614,12 @@ const app = createApp({
         subtitle: "Estado, controles y límites",
         icon: "wallet",
         page: "tarjetas",
+      },
+      {
+        title: "Mis alias",
+        subtitle: "Tu cédula o celular para recibir",
+        icon: "copy",
+        page: "alias",
       },
       {
         title: "Movimientos",
@@ -574,6 +648,22 @@ const app = createApp({
     ];
     const notices = ref([]);
     const faqs = [
+      {
+        q: "¿Qué diferencia hay entre mi usuario (@) y mi alias?",
+        a: "El usuario (@) es tu identidad dentro de la app: lo usás para entrar y para que te encuentren tus contactos. El alias es tu cédula o tu celular, y es el dato que se comparte entre bancos para que te transfieran.",
+      },
+      {
+        q: "¿Por qué no puedo elegir mi cédula como alias?",
+        a: "Porque el alias es único en todo el sistema. Si ese dato ya está usado como alias en otro banco, no se puede repetir.",
+      },
+      {
+        q: "¿Cuántas cuentas y alias puedo tener?",
+        a: "Hasta cinco cuentas. Como el alias se elige entre tu cédula y tu celular, como máximo podés tener dos alias.",
+      },
+      {
+        q: "¿Cómo pido otra cuenta?",
+        a: "Desde Inicio, tocá «Solicitar nuevo producto» y elegí cuenta corriente o caja de ahorro. No hace falta volver a registrarte.",
+      },
       {
         q: "¿Cómo envío dinero a otro banco?",
         a: "Entrá a Enviar, elegí el banco destino e ingresá el alias o cuenta. Indicá el importe y revisá los datos antes de confirmar.",
@@ -620,7 +710,9 @@ const app = createApp({
     });
     return {
       accountAlias,
+      aliasRaw,
       profile,
+      username,
       accounts,
       transactions,
       settings,
@@ -655,6 +747,21 @@ const app = createApp({
       setAuth,
       aliasChoice,
       aliasOptions,
+      aliasTarget,
+      aliasError,
+      abrirAlias,
+      cerrarAlias,
+      guardarAlias,
+      nuevaCuenta,
+      nuevaCuentaError,
+      abrirNuevaCuenta,
+      crearCuenta,
+      tiposCuenta,
+      tipoLabel,
+      estadoLabel,
+      formatearAlias,
+      usernameEdited,
+      sugerirUsuario,
       account,
       initials,
       firstName,

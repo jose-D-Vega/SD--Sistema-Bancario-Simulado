@@ -8,8 +8,8 @@
     />
     <meta name="theme-color" content="#063c32" />
     <title>SUDAMERIS · esta vez, funcional.</title>
-    <link rel="stylesheet" href="style.css?v=3" />
-    <link rel="stylesheet" href="glass.css?v=3" />
+    <link rel="stylesheet" href="style.css?v=4" />
+    <link rel="stylesheet" href="glass.css?v=4" />
     <script src="vue.global.prod.js"></script>
     <script src="qrcode.js"></script>
   </head>
@@ -38,15 +38,16 @@
             </h2>
             <form novalidate @submit.prevent="authenticate">
               <template v-if="auth==='register'">
-                <label>Nombre y apellido<input v-model="registration.name" :class="{invalid:fieldErrors.name}" placeholder="¿Cómo te llamás?" autocomplete="name" @input="fieldErrors.name=''" /><small class="field-error" v-if="fieldErrors.name">{{fieldErrors.name}}</small></label>
+                <label>Nombre y apellido<input v-model="registration.name" :class="{invalid:fieldErrors.name}" placeholder="¿Cómo te llamás?" autocomplete="name" @input="sugerirUsuario();fieldErrors.name=''" /><small class="field-error" v-if="fieldErrors.name">{{fieldErrors.name}}</small></label>
+                <label>Usuario (@)<input v-model="registration.username" :class="{invalid:fieldErrors.username}" placeholder="juanperecito" autocomplete="off" autocapitalize="none" spellcheck="false" @input="usernameEdited=true;fieldErrors.username=''" /><small class="field-error" v-if="fieldErrors.username">{{fieldErrors.username}}</small></label>
                 <div class="row">
                   <label>País del documento<select><option>Paraguay</option><option>Argentina</option><option>Brasil</option></select></label>
                   <label>Tipo<select><option>Cédula</option></select></label>
                 </div>
                 <label>Número de documento<input v-model="registration.document" :class="{invalid:fieldErrors.document}" inputmode="numeric" placeholder="Ej. 4567890" autocomplete="off" @input="fieldErrors.document=''" /><small class="field-error" v-if="fieldErrors.document">{{fieldErrors.document}}</small></label>
-                <label>Tipo de cuenta<select v-model="registration.type"><option>Caja de ahorro</option><option>Cuenta corriente</option></select></label>
+                <label>Tipo de cuenta<select v-model="registration.type"><option v-for="t in tiposCuenta" :value="t.value">{{t.label}}</option></select></label>
               </template>
-              <label v-if="auth!=='register'">{{auth==='recover'?'Correo electrónico':'Número de documento'}}<input v-model="credentials.user" :class="{invalid:fieldErrors.user}" :type="auth==='recover'?'email':'text'" :inputmode="auth==='recover'?'email':'numeric'" :placeholder="auth==='recover'?'nombre@correo.com':'Ej. 4567890'" autocomplete="username" autocapitalize="none" spellcheck="false" @input="fieldErrors.user='';authError=''" /><small class="field-error" v-if="fieldErrors.user">{{fieldErrors.user}}</small></label>
+              <label v-if="auth!=='register'">{{auth==='recover'?'Correo electrónico':'Usuario o cédula'}}<input v-model="credentials.user" :class="{invalid:fieldErrors.user}" :type="auth==='recover'?'email':'text'" :inputmode="auth==='recover'?'email':'text'" :placeholder="auth==='recover'?'nombre@correo.com':'Ej. @maria o 4567890'" autocomplete="username" autocapitalize="none" spellcheck="false" @input="fieldErrors.user='';authError=''" /><small class="field-error" v-if="fieldErrors.user">{{fieldErrors.user}}</small></label>
               <template v-if="auth!=='recover'">
                 <label>Contraseña
                   <div class="password">
@@ -89,7 +90,8 @@
           </header>
           <div class="page" :class="{'home-page':page==='inicio'}" :key="page">
             <template v-if="page==='inicio'"
-              ><section class="balance-card">
+              ><p class="home-greeting">Hola, <strong>@{{username}}</strong></p>
+              <section class="balance-card">
                 <div class="balance-label">
                   Saldo disponible
                   <button
@@ -107,8 +109,8 @@
                   Cuenta N.º {{account.number}} <span>⌄</span>
                 </button>
                 <div class="balance-bottom">
-                  <span :class="{inactive:account.status!=='Activa'}"
-                    >{{account.type}} · {{account.status}}</span
+                  <span :class="{inactive:account.status!=='ACTIVA'}"
+                    >{{tipoLabel(account)}} · {{estadoLabel(account.status)}}</span
                   >
                 </div>
               </section>
@@ -173,27 +175,31 @@
                       :class="{selected:i===activeAccount}"
                       v-for="(a,i) in accounts"
                       @click="activeAccount=i"
-                      :aria-label="a.type+' '+a.number+' '+money(a.balance)+' Gs.'"
+                      :aria-label="tipoLabel(a)+' '+a.number+' '+money(a.balance)+' Gs.'"
                       :aria-pressed="i===activeAccount"
                     >
                       <div class="account-pane-top">
                         <strong>{{profile.name}}</strong
                         ><span class="account-type"
-                          >{{a.type}}<small>{{a.number}}</small></span
+                          >{{tipoLabel(a)}}<small>{{a.number}}</small></span
                         >
                       </div>
+                      <div class="account-alias">{{a.alias?'Alias '+formatearAlias(a.alias):''}}</div>
                       <div class="account-pane-bottom">
                         <span class="account-amount"
                           >{{balanceVisible?money(a.balance):'••••••'}}
                           <small v-if="balanceVisible">Gs.</small></span
                         ><span
                           class="account-status"
-                          :class="{inactive:a.status!=='Activa'}"
-                          >{{i===activeAccount?'✓ ':''}}{{a.status}}</span
+                          :class="{inactive:a.status!=='ACTIVA'}"
+                          >{{i===activeAccount?'✓ ':''}}{{estadoLabel(a.status)}}</span
                         >
                       </div>
                     </button>
-                  </div></template
+                  </div>
+                  <button class="product-cta" @click="abrirNuevaCuenta">
+                    <span>Solicitar nuevo producto</span><span>›</span>
+                  </button></template
                 >
               </section></template
             >
@@ -220,7 +226,7 @@
                     >Alias o número de cuenta<input
                       required
                       v-model="transfer.destination"
-                      placeholder="Ej. lucia.bogado"
+                      placeholder="Ej. 4567890"
                       @input="transfer.name=''"
                   /></label>
                   <h3 class="minor-title">Contactos frecuentes</h3>
@@ -228,12 +234,13 @@
                     <button
                       type="button"
                       v-for="c in contacts"
-                      @click="transfer.bank='SUDAMERIS';transfer.destination=c.alias;transfer.name=c.name"
+                      :title="'Alias: ' + c.aliasVisible"
+                      @click="transfer.bank='SUDAMERIS';transfer.destination=c.destination;transfer.name=c.name"
                     >
                       <span class="avatar"
                         >{{c.name.split(' ').map(s=>s[0]).slice(0,2).join('')}}</span
                       ><strong>{{c.name.split(' ')[0]}}</strong
-                      ><small>{{c.alias}}</small>
+                      ><small>@{{c.handle}}</small>
                     </button>
                   </div></template
                 ><template v-if="transferStep===2"
@@ -250,7 +257,7 @@
                   <label
                     >Desde tu cuenta<select v-model="activeAccount">
                       <option v-for="(a,i) in accounts" :value="i">
-                        {{a.type}} · {{a.number.slice(-4)}}
+                        {{tipoLabel(a)}} · {{a.number.slice(-4)}}
                       </option>
                     </select></label
                   ><label
@@ -320,7 +327,7 @@
               <section class="receive-card">
                 <span class="avatar large">{{initials}}</span>
                 <h3>{{profile.name}}</h3>
-                <p class="muted">{{account.type}}</p>
+                <p class="muted">{{tipoLabel(account)}}</p>
                 <div class="qr-box" aria-label="Código QR de tu cuenta">
                   <svg v-bind="{viewBox: '0 0 '+qrSize+' '+qrSize}">
                     <rect :width="qrSize" :height="qrSize" fill="white" />
@@ -328,10 +335,10 @@
                   </svg>
                 </div>
                 <div class="alias">{{accountAlias||'Sin alias'}}</div>
-                <button v-if="accountAlias" class="text-link" @click="copy(accountAlias)">
+                <button v-if="accountAlias" class="text-link" @click="copy(aliasRaw)">
                   Copiar alias <icon name="copy"></icon>
                 </button>
-                <button v-else class="text-link" @click="go('perfil')">
+                <button v-else class="text-link" @click="abrirAlias(activeAccount)">
                   Elegir mi alias
                 </button>
               </section>
@@ -362,7 +369,7 @@
                 ><button @click="exportHistory">↓ Exportar</button>
               </div>
               <p class="muted small">
-                {{filteredTransactions.length}} movimientos · {{account.type}}
+                {{filteredTransactions.length}} movimientos · {{tipoLabel(account)}}
               </p>
               <button
                 class="transaction"
@@ -397,10 +404,30 @@
                 <label>Nombre y apellido<input v-model="profile.name" :class="{invalid:profileErrors.name}" autocomplete="name" @input="profileErrors.name=''" /><small class="field-error" v-if="profileErrors.name">{{profileErrors.name}}</small></label>
                 <label>Correo electrónico<input type="email" v-model="profile.email" :class="{invalid:profileErrors.email}" autocomplete="email" @input="profileErrors.email=''" /><small class="field-error" v-if="profileErrors.email">{{profileErrors.email}}</small></label>
                 <label>Celular<input type="tel" v-model="profile.phone" :class="{invalid:profileErrors.phone}" autocomplete="tel" @input="profileErrors.phone=''" /><small class="field-error" v-if="profileErrors.phone">{{profileErrors.phone}}</small></label>
-                <label>Alias<select v-model="aliasChoice" :class="{invalid:profileErrors.alias}" @change="profileErrors.alias=''"><option value="" disabled>Elegí tu alias</option><option v-for="o in aliasOptions" :key="o.value" :value="o.value">{{o.label}}</option></select><small class="field-error" v-if="profileErrors.alias">{{profileErrors.alias}}</small></label>
+                <label>Usuario (@)<input :value="'@' + username" disabled /></label>
                 <label>Documento<input :value="profile.document" disabled /></label>
                 <button class="primary full">Guardar cambios <span>✓</span></button>
+                <button type="button" class="secondary full" @click="go('alias')">Gestionar mis alias</button>
               </form></template
+            >
+            <template v-else-if="page==='alias'"
+              ><page-title title="Mis alias" @back="go('inicio')"></page-title>
+              <div class="alias-list">
+                <div class="alias-card" v-for="(a,i) in accounts" :key="a.number">
+                  <div class="alias-card-head">
+                    <strong>{{tipoLabel(a)}}</strong>
+                    <small>{{a.number}} · {{estadoLabel(a.status)}}</small>
+                  </div>
+                  <div class="alias-value" v-if="a.alias">{{formatearAlias(a.alias)}}</div>
+                  <div class="alias-value sin-alias" v-else>Sin alias</div>
+                  <button type="button" class="text-link" @click="abrirAlias(i)">
+                    {{a.alias?'Cambiar alias':'Elegir alias'}}
+                  </button>
+                </div>
+              </div>
+              <button class="product-cta" @click="abrirNuevaCuenta">
+                <span>Solicitar nuevo producto</span><span>›</span>
+              </button></template
             >
             <template v-else-if="page==='opciones'"
               ><page-title title="Opciones" @back="go('inicio')"></page-title
@@ -642,8 +669,8 @@
                 @click="activeAccount=i;modal='' "
               >
                 <span
-                  ><strong>{{a.type}}</strong
-                  ><small>{{a.number}} · {{a.status}}</small></span
+                  ><strong>{{tipoLabel(a)}}</strong
+                  ><small>{{a.number}} · {{estadoLabel(a.status)}}</small></span
                 ><strong>{{money(a.balance)}} Gs.</strong>
               </button></template
             ><template v-else-if="modal==='password'"
@@ -662,6 +689,57 @@
               ><button class="secondary full" @click="modal=''">
                 Seguir acá
               </button></template
+            ><template v-else-if="modal==='alias'"
+              ><h2>Cambiar alias</h2>
+              <div
+                class="alias-option"
+                :class="{current:o.current,taken:o.taken}"
+                v-for="o in aliasOptions"
+                :key="o.value"
+              >
+                <label>
+                  <input
+                    type="radio"
+                    :value="o.value"
+                    v-model="aliasChoice"
+                    :disabled="o.taken"
+                  />
+                  <span class="alias-option-text">
+                    <small>{{o.label}}</small>
+                    <strong>{{o.display}}</strong>
+                  </span>
+                </label>
+                <span class="alias-tag actual" v-if="o.current">Actual</span>
+                <span class="alias-tag danger" v-else-if="o.taken"
+                  >En uso · {{o.by}}</span
+                >
+                <span class="alias-tag ok" v-else>Disponible</span>
+              </div>
+              <p class="error" v-if="aliasError">{{aliasError}}</p>
+              <button class="primary full" @click="guardarAlias">
+                Confirmar
+              </button>
+              <button class="secondary full" @click="cerrarAlias">
+                Cancelar
+              </button></template
+            ><template v-else-if="modal==='nueva-cuenta'"
+              ><h2>Solicitar nuevo producto</h2>
+              <label
+                >Tipo de cuenta<select v-model="nuevaCuenta.type">
+                  <option v-for="t in tiposCuenta" :value="t.value">
+                    {{t.label}}
+                  </option>
+                </select></label
+              >
+              <p class="error" v-if="nuevaCuentaError">
+                {{nuevaCuentaError}}
+              </p>
+              <button class="primary full" @click="crearCuenta">
+                Solicitar
+              </button>
+              <button class="secondary full" @click="modal=''">
+                Cancelar
+              </button></template
             ><template v-else
               ><h2>SUDAMERIS</h2>
               <p>esta vez, funcional.</p>
@@ -673,7 +751,7 @@
         </div>
       </main>
     </div>
-    <script src="bank.js?v=3"></script>
-    <script src="app.js?v=3"></script>
+    <script src="bank.js?v=4"></script>
+    <script src="app.js?v=4"></script>
   </body>
 </html>

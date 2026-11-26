@@ -57,3 +57,82 @@ label{font-size:14px;margin:22px 0}input,select,textarea{font-size:16px;padding:
 input.invalid,select.invalid,textarea.invalid{border-color:#c62828;background:#fff}
 input.invalid:focus,textarea.invalid:focus{border-color:#c62828;box-shadow:0 0 0 3px #c6282822}
 .check + .field-error{margin:-12px 0 14px}
+/* Alias (cédula/celular), usuario (@) y apertura de cuentas */
+.home-greeting{margin:0;text-align:center;font-size:12px;color:#a9c7b4;letter-spacing:.2px}
+.home-greeting strong{color:#eafff0;font-weight:700}
+.account-alias{font-size:11px;color:#bfe0c8;margin-top:11px;letter-spacing:.2px}
+.account-alias.empty{color:#94b7a2;opacity:.75}
+.alias-list{display:grid;gap:12px;margin:14px 0 22px}
+.alias-card{border:1px solid #cfddce;border-radius:16px;background:#ffffff80;padding:14px 16px;display:grid;grid-template-columns:1fr auto;gap:6px 12px;align-items:center}
+.alias-card-head{display:flex;flex-direction:column;gap:3px;min-width:0}
+.alias-card-head strong{font-size:15px}
+.alias-card-head small{font-size:11px;color:#788a79}
+.alias-value{font:700 16px Manrope,sans-serif;color:#1b5538;text-align:right}
+.alias-value.sin-alias{color:#9aab9c;font-weight:500}
+.alias-card .text-link{grid-column:1/-1;justify-self:start;font-size:12px;padding:0}
+.alias-option{border:1px solid #cfddce;border-radius:15px;background:#ffffff85;padding:13px 15px;margin:10px 0;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.alias-option label{display:flex;align-items:center;gap:11px;margin:0;font-size:14px;cursor:pointer;flex:1}
+.alias-option label input{min-height:0;margin:0;accent-color:#257648;width:20px;height:20px;padding:0;flex:none}
+.alias-option-text{display:flex;flex-direction:column;gap:2px}
+.alias-option-text small{font-size:10.5px;color:#788a79;text-transform:uppercase;letter-spacing:.06em}
+.alias-option-text strong{font-size:16px;color:#143f2c}
+.alias-option.current{border-color:#7fb88f;background:#e6f4e6b8}
+.alias-option.taken{opacity:.5}
+.alias-tag{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:4px 8px;border-radius:6px;white-space:nowrap}
+.alias-tag.actual{background:#d6ead3;color:#20583a}
+.alias-tag.ok{background:#e2f0dd;color:#2c6b41}
+.alias-tag.danger{background:#f7e2da;color:#a04a2e}
+@media(max-width:740px){.alias-card{padding:14px}.alias-option{padding:12px 13px}}
+/* Encabezado un poco más compacto para que no compita con las tarjetas */
+.topbar{padding:18px 22px 8px}
+.header-brand strong{font-size:24px}
+.header-brand span{font-size:12px}
+.balance-card{padding:15px 10px 2px}
+.balance-label{font-size:12px}
+.balance{font:750 40px/1.02 Manrope,sans-serif;letter-spacing:-1.4px;margin:6px 0 3px}
+.balance small{font:500 21px 'DM Sans',sans-serif}
+.account-select{font-size:14px}
+.balance-bottom{font-size:10px;margin-top:7px}
+.quick-actions{margin:9px 0 11px;gap:10px}
+.quick-actions button{font-size:11.5px}
+.quick-actions button>span{width:47px;height:47px;border-radius:13px}
+.quick-actions .icon{width:24px;height:24px}
+.accounts-surface{padding-top:11px}
+.tabs{margin-bottom:11px}
+.accounts-grid{gap:10px}
+.account-pane{padding:8px 15px;border-radius:15px;min-height:88px;display:flex;flex-direction:column;justify-content:space-between;text-align:left}
+.account-pane:hover{transform:translateY(-1px)}
+.account-pane-top{gap:8px;align-items:flex-start}
+.account-pane-top>strong{font:600 13.5px/1.25 'DM Sans',sans-serif;max-width:58%}
+.account-type{font-size:9.5px;padding:3px 7px 0;border-radius:6px}
+.account-type small{font-size:9.5px;margin:2px -7px 0;padding:2px 7px;border-radius:0 0 5px 5px}
+.account-alias{font-size:9.5px;color:#bfe0c8;min-height:11px;margin:2px 0 0;letter-spacing:.2px}
+.account-pane-bottom{margin-top:2px;align-items:flex-end}
+.account-amount{font:700 21px/1.05 Manrope,sans-serif;letter-spacing:-.6px}
+.account-amount small{font-size:11px}
+.account-status{font-size:8.5px;margin-bottom:0}
+@media(max-width:740px){
+  .balance{font-size:45px}
+  .account-pane{padding:8px 14px;min-height:88px}
+  .account-amount{font-size:21px}
+  .account-type{font-size:9.5px;padding:3px 7px 0}
+  .account-type small{font-size:9.5px;margin-left:-7px;margin-right:-7px}
+}
+/* Banner "Solicitar nuevo producto" */
+.product-cta{display:flex;align-items:center;justify-content:space-between;width:100%;margin:16px 0 0;padding:15px 17px;border-radius:11px;background:linear-gradient(120deg,#257648,#125638);color:#f4fff6;font-size:11.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;box-shadow:inset 0 1px 0 #8acba043,0 4px 12px #28683b18}
+.product-cta span:last-child{font-size:19px;font-weight:400;letter-spacing:0;line-height:1;opacity:.9}
+.product-cta:hover{background:linear-gradient(120deg,#2b8450,#146040)}
+@media(max-width:380px){
+  .balance-card{padding:16px 10px 1px}
+  .balance{font-size:38px;margin:5px 0 3px}
+  .balance small{font-size:19px}
+  .quick-actions{margin:9px 0 11px}
+  .quick-actions button>span{width:45px;height:45px;border-radius:13px}
+  .quick-actions .icon{width:23px;height:23px}
+  .quick-actions button{font-size:11px}
+  .accounts-surface{padding-top:10px}
+  .tabs{margin-bottom:10px}
+  .account-pane{padding:6px 13px;border-radius:14px}
+  .account-pane-top>strong{font-size:13px}
+  .account-amount{font-size:20px}
+}
