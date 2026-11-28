@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#064B35">
+  <title>ATM Sudameris · Todo un banco.</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/cajero.css">
+</head>
+<body>
+  <div class="atm-page">
+    <main class="atm-machine" aria-label="Cajero Automático Sudameris">
+      <!-- Barra superior del gabinete físico -->
+      <header class="atm-cabinet-top">
+        <div class="atm-cabinet-brand">
+          <span class="atm-led" id="atm-status-led" aria-hidden="true"></span>
+          <span>CAJERO AUTOMÁTICO · RED SUDAMERIS</span>
+        </div>
+        <div class="atm-cabinet-meta">
+          <span id="atm-reloj">--:--</span>
+        </div>
+      </header>
+
+      <!-- Zona central: botones físicos laterales + pantalla del ATM -->
+      <section class="atm-console">
+        <div class="side-buttons side-left" aria-label="Botones laterales izquierdos">
+          <button type="button" class="hw-side-btn" data-side="L1" aria-label="Botón lateral izquierdo 1" disabled>
+            <span class="hw-btn-cap"></span>
+          </button>
+          <button type="button" class="hw-side-btn" data-side="L2" aria-label="Botón lateral izquierdo 2" disabled>
+            <span class="hw-btn-cap"></span>
+          </button>
+          <button type="button" class="hw-side-btn" data-side="L3" aria-label="Botón lateral izquierdo 3" disabled>
+            <span class="hw-btn-cap"></span>
+          </button>
+          <button type="button" class="hw-side-btn" data-side="L4" aria-label="Botón lateral izquierdo 4" disabled>
+            <span class="hw-btn-cap"></span>
+          </button>
+        </div>
+
+        <div class="atm-screen-frame">
+          <div class="atm-screen" role="region" aria-live="polite" aria-label="Pantalla del cajero">
+            <header class="screen-header">
+              <h1 class="screen-title" id="screen-title"></h1>
+              <div class="sudameris-logo" aria-label="Sudameris, Todo un banco.">
+                <span class="logo-word">SUDAMERIS</span>
+                <span class="logo-slogan">Todo un banco.</span>
+              </div>
+            </header>
+
+            <div class="screen-body" id="pantalla-contenido">
+              <!-- El contenido de cada pantalla se renderiza dinámicamente aquí -->
+            </div>
+          </div>
+        </div>
+
+        <div class="side-buttons side-right" aria-label="Botones laterales derechos">
+          <button type="button" class="hw-side-btn" data-side="R1" aria-label="Botón lateral derecho 1" disabled>
+            <span class="hw-btn-cap"></span>
+          </button>
+          <button type="button" class="hw-side-btn" data-side="R2" aria-label="Botón lateral derecho 2" disabled>
+            <span class="hw-btn-cap"></span>
+          </button>
+          <button type="button" class="hw-side-btn" data-side="R3" aria-label="Botón lateral derecho 3" disabled>
+            <span class="hw-btn-cap"></span>
+          </button>
+          <button type="button" class="hw-side-btn" data-side="R4" aria-label="Botón lateral derecho 4" disabled>
+            <span class="hw-btn-cap"></span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Ranuras físicas simuladas e información de demostración -->
+      <footer class="atm-hardware-strip">
+        <div class="hw-slot" id="hw-card-slot">
+          <span class="hw-slot-led" aria-hidden="true"></span>
+          <div class="hw-slot-info">
+            <span class="hw-slot-title">Lector de Tarjeta</span>
+            <span class="hw-slot-slit"></span>
+          </div>
+        </div>
+
+        <div class="demo-pill">
+          <span>Simulación · PIN de prueba: <strong>1234</strong></span>
+        </div>
+
+        <div class="hw-slot" id="hw-cash-slot">
+          <span class="hw-slot-led" aria-hidden="true"></span>
+          <div class="hw-slot-info">
+            <span class="hw-slot-title">Dispensador / Recibo</span>
+            <span class="hw-slot-slit"></span>
+          </div>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <!-- Scripts en orden modular para compatibilidad directa con file:// y Live Server -->
+  <script defer src="js/estado.js"></script>
+  <script defer src="js/api.js"></script>
+  <script defer src="pantallas/comunes.js"></script>
+  <script defer src="pantallas/bienvenida.js"></script>
+  <script defer src="pantallas/validacion.js"></script>
+  <script defer src="pantallas/pin.js"></script>
+  <script defer src="pantallas/menu.js"></script>
+  <script defer src="pantallas/extraccion.js"></script>
+  <script defer src="pantallas/recibo.js"></script>
+  <script defer src="pantallas/procesando.js"></script>
+  <script defer src="pantallas/finalizada.js"></script>
+  <script defer src="pantallas/cuenta.js"></script>
+  <script defer src="pantallas/tarjetas.js"></script>
+  <script defer src="pantallas/giros.js"></script>
+  <script defer src="pantallas/servicios.js"></script>
+  <script defer src="pantallas/recarga.js"></script>
+  <script defer src="pantallas/otrasOperaciones.js"></script>
+  <script defer src="pantallas/transferencias.js"></script>
+  <script defer src="pantallas/movimientos.js"></script>
+  <script defer src="pantallas/cambioPin.js"></script>
+  <script defer src="pantallas/adelanto.js"></script>
+  <script defer src="js/app.js"></script>
+</body>
+</html>
