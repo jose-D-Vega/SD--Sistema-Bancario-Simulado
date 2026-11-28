@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -38,6 +39,13 @@ type Config struct {
 	// defecto a propósito: RequireAdminKey bloquea todo si esto no está
 	// configurado, en vez de dejar pasar.
 	AdminAPIKey string
+
+	// Orígenes permitidos para CORS (handlers.CORS), p. ej.
+	// "http://localhost:5500" o una lista separada por comas:
+	// "http://localhost:5500,http://localhost:3000". Vacío por defecto:
+	// sin esta variable configurada, ningún origen de navegador puede
+	// llamar a la API (fail-closed, igual que AdminAPIKey).
+	CORSAllowedOrigins []string
 }
 
 func Load() Config {
@@ -51,6 +59,7 @@ func Load() Config {
 		ReconciliacionIntervalo: time.Duration(getEnvInt("RECONCILIACION_INTERVALO_SEGUNDOS", 30)) * time.Second,
 		SesionDuracion:          time.Duration(getEnvInt("SESION_DURACION_HORAS", 24)) * time.Hour,
 		AdminAPIKey:             getEnv("ADMIN_API_KEY", ""),
+		CORSAllowedOrigins:      getEnvList("CORS_ALLOWED_ORIGINS", nil),
 	}
 }
 
@@ -59,6 +68,25 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// getEnvList lee una variable separada por comas (p. ej.
+// "http://a,http://b") y devuelve los valores ya sin espacios. Entradas
+// vacías entre comas se descartan (",," o una variable no configurada no
+// generan un origen vacío "" que terminaría matcheando por accidente).
+func getEnvList(key string, fallback []string) []string {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return fallback
+	}
+	var out []string
+	for _, parte := range strings.Split(v, ",") {
+		parte = strings.TrimSpace(parte)
+		if parte != "" {
+			out = append(out, parte)
+		}
+	}
+	return out
 }
 
 func getEnvInt(key string, fallback int) int {

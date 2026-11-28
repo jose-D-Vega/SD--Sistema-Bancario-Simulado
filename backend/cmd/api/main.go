@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"log"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 
@@ -44,6 +45,34 @@ func main() {
 	}
 
 	router := gin.Default()
+
+	// Tiene que ir antes de registrar cualquier ruta: si no, las respuestas
+	// que salen antes de este middleware (incluido el preflight OPTIONS)
+	// no llevarían los headers de CORS. Hace falta porque el frontend se
+	// sirve en un puerto distinto al del backend (p. ej. :5500 contra
+	// :8080): sin esto el navegador bloquea las respuestas y, sobre todo,
+	// nunca llega a mandar los POST/PATCH reales (Content-Type:
+	// application/json dispara un preflight OPTIONS que Gin sin este
+	// middleware no responde con los headers que el navegador exige).
+	//
+	// AllowCredentials queda en false porque RequireSesion no usa cookies:
+	// el token de sesión va en el header Authorization (Bearer <token>),
+	// que el frontend agrega a mano en cada request. Por eso alcanza con
+	// validar el origen contra una lista explícita, sin el modo
+	// "credentials" de CORS (más estricto y pensado para cuando el
+	// navegador manda cookies solo).
+	if len(cfg.CORSAllowedOrigins) == 0 {
+		log.Printf("aviso: CORS_ALLOWED_ORIGINS no está configurada; ningún navegador podrá llamar a esta API")
+	}
+	router.Use(cors.New(cors.Config{
+		AllowOrigins: cfg.CORSAllowedOrigins,
+		AllowMethods: []string{"GET", "POST", "PATCH", "OPTIONS"},
+		AllowHeaders: []string{
+			"Content-Type", "Authorization",
+			"X-Bank-Id", "X-Timestamp", "X-Idempotency-Key", "X-Signature",
+		},
+		AllowCredentials: false,
+	}))
 
 	router.GET("/health", handlers.Health(dbConn, cfg.BancoID))
 
